@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voxen"
+version = "0.1.0"
+description = "Local-first AI voice dictation for Windows and macOS"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "faster-whisper>=1.1.0",
+    "pynput>=1.7.7",
+    "numpy>=1.26.0",
+    "sounddevice>=0.4.7",
+    "pyautogui>=0.9.54",
+    "pyperclip>=1.9.0",
+    "pystray>=0.19.5",
+    "Pillow>=10.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "pyinstaller>=6.0", "resvg-py>=0.5.0"]
+
+[project.scripts]
+voxen = "voxen.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Voxen voice mark">
+  <defs>
+    <linearGradient id="mint" x1="42" y1="36" x2="214" y2="222" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B9F8D6"/>
+      <stop offset="1" stop-color="#72E0AE"/>
+    </linearGradient>
+    <linearGradient id="signal" x1="194" y1="54" x2="218" y2="78" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD27A"/>
+      <stop offset="1" stop-color="#E6A73C"/>
+    </linearGradient>
+  </defs>
+  <circle cx="128" cy="128" r="116" fill="#11181E"/>
+  <path d="M77 114V91a51 51 0 0 1 102 0v23a51 51 0 0 1-102 0Z" fill="url(#mint)"/>
+  <path d="M62 112v8a66 66 0 0 0 132 0v-8" fill="none" stroke="#B9F8D6" stroke-linecap="round" stroke-width="13"/>
+  <path d="M128 186v27M94 214h68" fill="none" stroke="#72E0AE" stroke-linecap="round" stroke-width="13"/>
+  <path d="M48 91a85 85 0 0 0 0 74M208 91a85 85 0 0 1 0 74" fill="none" stroke="#4EA987" stroke-linecap="round" stroke-width="7" opacity=".9"/>
+  <circle cx="211" cy="58" r="16" fill="url(#signal)"/>
+  <path d="m211 49 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2-4.5-4.4 6.2-.9Z" fill="#11181E"/>
+</svg>

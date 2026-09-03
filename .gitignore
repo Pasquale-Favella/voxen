@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.egg-info/
+.vscode/*.log
+build/
+dist/
+*.spec
+
+# Local configuration and Whisper model caches
+config.json
+models/
