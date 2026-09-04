@@ -12,6 +12,7 @@ class GlobalHotkey:
         self._keyboard = None
         self._pressed = False
         self._keys_down: set[str] = set()
+        self._stopping = False
         parts = [part.strip().lower() for part in hotkey.split("+") if part.strip()]
         if not parts:
             raise ValueError("La hotkey non può essere vuota.")
@@ -59,12 +60,24 @@ class GlobalHotkey:
             raise RuntimeError("Installa pynput per usare la hotkey globale.") from exc
 
         self._keyboard = keyboard
-        self._listener = keyboard.Listener(on_press=self._handle_press, on_release=self._handle_release)
+        self._stopping = False
+        self._listener = keyboard.Listener(
+            on_press=self._handle_press,
+            on_release=self._handle_release,
+            on_stop=self._handle_listener_stop,
+        )
         try:
             self._listener.start()
         except Exception as exc:
             self._listener = None
             raise RuntimeError(f"Impossibile attivare la hotkey globale: {exc}") from exc
+
+    def _handle_listener_stop(self) -> None:
+        was_pressed = self._pressed
+        self._keys_down.clear()
+        self._pressed = False
+        if was_pressed and not self._stopping:
+            self.on_release()
 
     def _handle_press(self, key) -> None:
         name = self._key_name(key)
@@ -83,6 +96,7 @@ class GlobalHotkey:
             self.on_release()
 
     def stop(self) -> None:
+        self._stopping = True
         if self._listener is not None:
             self._listener.stop()
             self._listener = None

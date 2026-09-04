@@ -50,7 +50,7 @@ python -m pip install -e '.[dev]'
 python -m voxen
 ```
 
-The first launch opens the Voxen dashboard and warms the selected Whisper model in the background.
+The first launch opens the Voxen dashboard and warms the selected Whisper model in the background. With `Auto` device selection, Voxen uses CUDA when CTranslate2 detects a CUDA-capable GPU; otherwise it uses the CPU.
 
 ## Daily flow
 
@@ -71,8 +71,8 @@ The shortcut can be changed from the dashboard by pressing the desired key combi
 - Local speech-to-text with `faster-whisper` and cached models.
 - Italian, English, Japanese, French, German, Spanish, and automatic language detection.
 - 500 ms audio pre-roll to avoid losing the beginning of a sentence.
-- Deterministic cleanup for capitalization, whitespace, and final punctuation.
-- Clipboard-based paste with restoration of the previous text clipboard.
+- Conservative cleanup for capitalization, whitespace, and final punctuation; existing punctuation is preserved.
+- Clipboard-based paste with restoration of the previous clipboard contents. Windows and macOS use native clipboard formats when available, with a plain-text fallback.
 - Tray/menu bar background mode with open, pause/resume, and quit actions.
 - Persistent JSON settings for shortcut, model, language, and transcription options.
 
@@ -90,7 +90,7 @@ Voxen stores its configuration here:
 
 ```text
 Windows: %LOCALAPPDATA%\Voxen\config.json
-macOS:   ~/Voxen/config.json
+macOS:   ~/Library/Application Support/Voxen/config.json
 ```
 
 ## Build a distributable app
@@ -103,7 +103,7 @@ PyInstaller builds for the operating system it runs on, so build on the target p
 .\scripts\build-windows.ps1
 ```
 
-This creates a portable `dist\Voxen\` folder. If Inno Setup is installed, it also creates `dist\installer\Voxen-Setup-0.1.1.exe`; otherwise the script creates `dist\Voxen-windows.zip`.
+This creates a portable `dist\Voxen\` folder. If Inno Setup is installed, it also creates `dist\installer\Voxen-Setup-0.1.2.exe`; otherwise the script creates `dist\Voxen-windows.zip`.
 
 ### macOS
 
@@ -122,7 +122,7 @@ src/voxen/           Application, audio, hotkey, tray, STT, and paste pipeline
 assets/              SVG source mark and generated PNG/ICO assets
 scripts/             Asset generation and Windows/macOS packaging commands
 installer/           Optional Inno Setup definition for Windows
-tests/               Focused unit tests for text processing
+tests/               Focused unit tests for state, audio, config, hotkey, STT, clipboard, and text processing
 ```
 
 ## Test

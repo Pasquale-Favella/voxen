@@ -20,6 +20,8 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: python -m pip install -e ".[dev]"
+      - name: Run tests
+        run: python -m pytest -q
       - name: Install Inno Setup
         if: runner.os == 'Windows'
         run: choco install innosetup --no-progress -y

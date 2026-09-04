@@ -15,8 +15,11 @@ from .config import AppConfig, ConfigStore
 from .hotkey import GlobalHotkey
 from .injector import ClipboardInjector
 from .processing import ProcessingOptions, TextProcessor
-from .stt import FasterWhisperEngine
+from .state import AppState, AppStateMachine
+from .stt import ModelConfig, ModelManager
 from .tray import SystemTray
+
+EVENT_POLL_MS = 25
 
 
 class VoxenApp:
@@ -33,13 +36,10 @@ class VoxenApp:
         self.recorder = AudioRecorder(self.config.sample_rate, self.config.preroll_ms)
         self.processor = TextProcessor()
         self.injector = ClipboardInjector()
-        self.engine: FasterWhisperEngine | None = None
+        self.model_manager = ModelManager()
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voxen-stt")
-        self.recording = False
-        self.busy = False
-        self.paused = False
-        self.audio_ready = False
+        self._state_machine = AppStateMachine()
         self.hotkey: GlobalHotkey | None = None
         self.tray: SystemTray | None = None
 
@@ -71,8 +71,19 @@ class VoxenApp:
         self._build_overlay()
         self.root.withdraw()
         self._start_services()
-        self.root.after(100, self._drain_events)
+        self.root.after(EVENT_POLL_MS, self._drain_events)
         self.root.protocol("WM_DELETE_WINDOW", self._hide_settings)
+
+    @property
+    def state(self) -> AppState:
+        return self._state_machine.current
+
+    @state.setter
+    def state(self, next_state: AppState) -> None:
+        self._state_machine.transition(next_state)
+
+    def _model_config(self) -> ModelConfig:
+        return ModelConfig(self.config.model, self.config.device, self.config.compute_type)
 
     def _build_ui(self) -> None:
         style = ttk.Style()
@@ -103,7 +114,21 @@ class VoxenApp:
             selectbackground=[("readonly", "#72e0ae")],
             selectforeground=[("readonly", "#102019")],
         )
-        style.configure("Voxen.TCheckbutton", background="#11181e", foreground="#b8c7cf", font=("Segoe UI", 9))
+        style.configure(
+            "Voxen.TCheckbutton",
+            background="#17232b",
+            foreground="#b8c7cf",
+            font=("Segoe UI", 9),
+            padding=(4, 3),
+            indicatorcolor="#24353d",
+            indicatordiameter=14,
+        )
+        style.map(
+            "Voxen.TCheckbutton",
+            background=[("active", "#2b4149"), ("pressed", "#36535d")],
+            foreground=[("active", "#f1f7f4")],
+            indicatorcolor=[("active", "#527080"), ("selected", "#72e0ae")],
+        )
 
         container = tk.Frame(self.root, bg="#11181e")
         container.pack(fill="both", expand=True)
@@ -262,16 +287,18 @@ class VoxenApp:
     def _start_services(self) -> None:
         try:
             self.recorder.start()
-            self.audio_ready = True
-            self.status_var.set("Ready")
-        except RuntimeError as exc:
+            self.status_var.set("Starting...")
+            self.detail_var.set("Loading the local transcription model.")
+        except Exception as exc:
+            self.state = AppState.ERROR
+            self.status_var.set("Error")
             self.detail_var.set(str(exc))
         try:
             self.hotkey = GlobalHotkey(self.config.hotkey, self._request_recording_start, self._request_recording_stop)
             self.hotkey.start()
-            if self.audio_ready:
+            if self.state is AppState.READY:
                 self.detail_var.set(f"Hold {self.config.hotkey} to dictate.")
-        except RuntimeError as exc:
+        except Exception as exc:
             self.detail_var.set(str(exc))
         try:
             self.tray = SystemTray(
@@ -280,20 +307,16 @@ class VoxenApp:
                 self._request_quit,
             )
             self.tray.start()
-        except RuntimeError as exc:
+        except Exception as exc:
             self._show_settings()
             self.detail_var.set(str(exc))
         self._show_settings()
-        self.executor.submit(self._warm_engine)
+        self.executor.submit(self._warm_engine, self._model_config())
 
-    def _warm_engine(self) -> None:
+    def _warm_engine(self, model_config: ModelConfig) -> None:
         try:
-            self.engine = FasterWhisperEngine(
-                self.config.model,
-                self.config.device,
-                self.config.compute_type,
-            )
-            self.engine.load()
+            self.events.put(("model_loading", None))
+            self.model_manager.warm(model_config)
             self.events.put(("engine_ready", None))
         except Exception as exc:
             self.events.put(("model_error", str(exc)))
@@ -318,11 +341,18 @@ class VoxenApp:
         self.root.withdraw()
 
     def _toggle_pause(self) -> None:
-        if self.recording:
+        if self.state is AppState.RECORDING:
             self._stop_recording()
-        self.paused = not self.paused
-        self.status_var.set("Paused" if self.paused else "Ready")
-        self.detail_var.set("Resume from the Voxen tray icon." if self.paused else f"Hold {self.config.hotkey} to dictate.")
+        if self.state is AppState.PROCESSING:
+            return
+        if self.state is AppState.PAUSED:
+            self.state = AppState.READY
+            self.status_var.set("Ready")
+            self.detail_var.set(f"Hold {self.config.hotkey} to dictate.")
+        elif self.state is AppState.READY:
+            self.state = AppState.PAUSED
+            self.status_var.set("Paused")
+            self.detail_var.set("Resume from the Voxen tray icon.")
 
     def _request_recording_start(self) -> None:
         self.root.after(0, self._start_recording)
@@ -331,10 +361,10 @@ class VoxenApp:
         self.root.after(0, self._stop_recording)
 
     def _start_recording(self) -> None:
-        if self.paused or not self.audio_ready or self.recording or self.busy:
+        if self.state is not AppState.READY:
             return
         self.recorder.begin()
-        self.recording = True
+        self.state = AppState.RECORDING
         self.started_at = time.monotonic()
         self.status_var.set("Listening...")
         self.detail_var.set("Release the hotkey when you finish speaking.")
@@ -346,11 +376,10 @@ class VoxenApp:
         self._update_overlay_clock()
 
     def _stop_recording(self) -> None:
-        if not self.recording:
+        if self.state is not AppState.RECORDING:
             return
-        self.recording = False
+        self.state = AppState.PROCESSING
         audio = self.recorder.end()
-        self.busy = True
         self.overlay_var.set("Processing locally  •  Whisper")
         self.overlay_hint_var.set("Turning your words into text")
         self.overlay_level_var.set("PROCESSING")
@@ -358,13 +387,11 @@ class VoxenApp:
         self.status_var.set("Processing...")
         self.detail_var.set("Whisper is transcribing locally.")
         self._show_overlay()
-        self.executor.submit(self._transcribe, audio)
+        self.executor.submit(self._transcribe, audio, self._model_config(), self.config.language)
 
-    def _transcribe(self, audio) -> None:
+    def _transcribe(self, audio, model_config: ModelConfig, language: str) -> None:
         try:
-            if self.engine is None or self.engine.model_name != self.config.model:
-                self.engine = FasterWhisperEngine(self.config.model, self.config.device, self.config.compute_type)
-            raw_text = self.engine.transcribe(audio, self.config.language)
+            raw_text = self.model_manager.transcribe(audio, model_config, language)
             self.events.put(("transcript", raw_text))
         except Exception as exc:  # worker errors must return to the UI thread
             self.events.put(("error", str(exc)))
@@ -372,29 +399,44 @@ class VoxenApp:
     def _drain_events(self) -> None:
         try:
             while True:
-                kind, payload = self.events.get_nowait()
-                if kind == "transcript":
-                    self._finish_transcript(str(payload))
-                elif kind == "engine_ready":
-                    if not self.recording and not self.busy and not self.paused:
-                        self.status_var.set("Ready")
-                        self.detail_var.set(f"Hold {self.config.hotkey} to dictate.")
-                elif kind == "model_error":
-                    self.detail_var.set(f"Model not ready: {payload}")
-                else:
-                    self.busy = False
+                try:
+                    kind, payload = self.events.get_nowait()
+                    if kind == "transcript":
+                        self._finish_transcript(str(payload))
+                    elif kind == "engine_ready":
+                        if self.state is AppState.STARTING:
+                            self.state = AppState.READY
+                            self.status_var.set("Ready")
+                            self.detail_var.set(f"Hold {self.config.hotkey} to dictate.")
+                    elif kind == "model_loading":
+                        if self.state is AppState.STARTING:
+                            self.status_var.set("Starting...")
+                            self.detail_var.set("Downloading or loading the local transcription model.")
+                    elif kind == "model_error":
+                        self.state = AppState.ERROR
+                        self.status_var.set("Error")
+                        self.detail_var.set(f"Model not ready: {payload}")
+                    else:
+                        self.state = AppState.ERROR
+                        self._hide_overlay()
+                        self.status_var.set("Error")
+                        self.detail_var.set(str(payload))
+                except queue.Empty:
+                    raise
+                except Exception as exc:
+                    self.state = AppState.ERROR
                     self._hide_overlay()
                     self.status_var.set("Error")
-                    self.detail_var.set(str(payload))
+                    self.detail_var.set(str(exc))
         except queue.Empty:
             pass
-        self.root.after(100, self._drain_events)
+        self.root.after(EVENT_POLL_MS, self._drain_events)
 
     def _finish_transcript(self, raw_text: str) -> None:
         options = ProcessingOptions(capitalization=True, punctuation=self.config.punctuation)
         text = self.processor.process(raw_text, options)
-        self.busy = False
         if not text:
+            self.state = AppState.READY
             self._hide_overlay()
             self.status_var.set("Ready")
             self.detail_var.set("No speech detected.")
@@ -407,11 +449,12 @@ class VoxenApp:
                 self.detail_var.set(str(exc))
         else:
             self.detail_var.set("Transcript ready. Automatic paste is disabled.")
+        self.state = AppState.READY
         self._hide_overlay()
         self.status_var.set("Ready")
 
     def _update_overlay_clock(self) -> None:
-        if not self.recording:
+        if self.state is not AppState.RECORDING:
             return
         elapsed = int(time.monotonic() - self.started_at)
         self.overlay_var.set(f"Listening  •  {elapsed // 60:02d}:{elapsed % 60:02d}")
@@ -485,16 +528,19 @@ class VoxenApp:
             self.detail_var.set(str(exc))
 
     def close(self) -> None:
-        if self.recording:
+        if self.state is AppState.CLOSING:
+            return
+        if self.state is AppState.RECORDING:
             self.recorder.end()
+        self.state = AppState.CLOSING
         if self.hotkey is not None:
             self.hotkey.stop()
         if self.tray is not None:
             self.tray.stop()
         self.recorder.close()
-        if self.engine is not None:
-            self.engine.unload()
-        self.executor.shutdown(wait=False, cancel_futures=True)
+        self.model_manager.cancel()
+        self.executor.shutdown(wait=True, cancel_futures=True)
+        self.model_manager.unload()
         self.root.destroy()
 
 

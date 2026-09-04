@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from collections import deque
+import logging
 from threading import Lock
+
+
+logger = logging.getLogger(__name__)
 
 
 class AudioRecorder:
@@ -15,12 +19,18 @@ class AudioRecorder:
         self._recording = False
         self._frames: list[object] = []
         self._level = 0.0
+        self._last_status: str | None = None
         self._lock = Lock()
 
     @property
     def level(self) -> float:
         with self._lock:
             return self._level
+
+    @property
+    def last_status(self) -> str | None:
+        with self._lock:
+            return self._last_status
 
     def start(self) -> None:
         try:
@@ -32,22 +42,44 @@ class AudioRecorder:
         blocksize = max(1, self.sample_rate // 50)
 
         def callback(indata, _frames, _time, status) -> None:
-            del status
             block = np.array(indata[:, 0], dtype=np.float32, copy=True)
-            with self._lock:
-                self._level = min(1.0, float(np.sqrt(np.mean(block * block)) * 6))
-                self._pre_roll.append(block)
-                if self._recording:
-                    self._frames.append(block)
+            self._handle_block(block, status, np)
 
-        self._stream = sd.InputStream(
-            samplerate=self.sample_rate,
-            channels=1,
-            dtype="float32",
-            blocksize=blocksize,
-            callback=callback,
-        )
-        self._stream.start()
+        stream = None
+        try:
+            stream = sd.InputStream(
+                samplerate=self.sample_rate,
+                channels=1,
+                dtype="float32",
+                blocksize=blocksize,
+                callback=callback,
+            )
+            stream.start()
+            self._stream = stream
+        except Exception as exc:
+            if stream is not None:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+            self._stream = None
+            raise RuntimeError(f"Impossibile avviare il microfono: {exc}") from exc
+
+    def _handle_block(self, block, status=None, numpy_module=None) -> None:
+        if status:
+            status_message = str(status)
+            logger.warning("Audio input status: %s", status_message)
+            with self._lock:
+                self._last_status = status_message
+        with self._lock:
+            if numpy_module is None:
+                import numpy as np
+
+                numpy_module = np
+            self._level = min(1.0, float(numpy_module.sqrt(numpy_module.mean(block * block)) * 6))
+            self._pre_roll.append(block)
+            if self._recording:
+                self._frames.append(block)
 
     def begin(self) -> None:
         with self._lock:
