@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 
 from voxen.injector import ClipboardInjector
@@ -49,7 +51,8 @@ def test_injector_restores_previous_clipboard() -> None:
     injector.inject("transcript")
 
     assert clipboard.value == "previous"
-    assert automation.calls == [("ctrl", "v")]
+    expected_modifier = "command" if sys.platform == "darwin" else "ctrl"
+    assert automation.calls == [(expected_modifier, "v")]
 
 
 def test_injector_restores_clipboard_when_paste_fails() -> None:
