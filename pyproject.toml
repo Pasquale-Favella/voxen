@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0", "pyinstaller>=6.0", "resvg-py>=0.5.0"]
+dev = ["pytest>=8.0.0", "pyinstaller>=6.0", "resvg-py>=0.5.0", "ruff>=0.6.0"]
 
 [project.scripts]
 voxen = "voxen.app:main"
@@ -32,3 +32,11 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 160
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

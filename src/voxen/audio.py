@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections import deque
 import logging
+from collections import deque
 from threading import Lock
-
 
 logger = logging.getLogger(__name__)
 

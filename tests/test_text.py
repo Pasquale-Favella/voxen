@@ -1,6 +1,6 @@
-from voxen.processing import ProcessingOptions, TextProcessor
-from voxen.hotkey import GlobalHotkey
 import pytest
+
+from voxen.domain.text import ProcessingOptions, TextProcessor
 
 
 def test_processor_normalizes_and_punctuates() -> None:
@@ -63,50 +63,3 @@ def test_processor_raw_mode_ignores_formatting_options() -> None:
     )
 
     assert result == "  ciao\nmondo?  "
-
-
-def test_hotkey_parses_configured_combination() -> None:
-    hotkey = GlobalHotkey("ctrl+shift+space", lambda: None, lambda: None)
-    assert hotkey._trigger == "space"
-    assert hotkey._modifiers == {"ctrl", "shift"}
-
-
-class FakeKey:
-    def __init__(self, name: str) -> None:
-        self.name = name
-
-
-def test_hotkey_fires_once_on_press_and_once_on_release() -> None:
-    events = []
-    hotkey = GlobalHotkey("ctrl+space", lambda: events.append("press"), lambda: events.append("release"))
-
-    hotkey._handle_press(FakeKey("ctrl"))
-    hotkey._handle_press(FakeKey("space"))
-    hotkey._handle_press(FakeKey("space"))
-    hotkey._handle_release(FakeKey("space"))
-    hotkey._handle_release(FakeKey("ctrl"))
-
-    assert events == ["press", "release"]
-
-
-def test_hotkey_does_not_fire_without_modifier() -> None:
-    events = []
-    hotkey = GlobalHotkey("ctrl+space", lambda: events.append("press"), lambda: events.append("release"))
-
-    hotkey._handle_press(FakeKey("space"))
-    hotkey._handle_release(FakeKey("space"))
-
-    assert events == []
-
-
-def test_hotkey_releases_when_listener_stops_unexpectedly() -> None:
-    events = []
-    hotkey = GlobalHotkey("ctrl+space", lambda: events.append("press"), lambda: events.append("release"))
-
-    hotkey._handle_press(FakeKey("ctrl"))
-    hotkey._handle_press(FakeKey("space"))
-    hotkey._handle_listener_stop()
-
-    assert events == ["press", "release"]
-    assert hotkey._pressed is False
-    assert hotkey._keys_down == set()

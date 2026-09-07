@@ -1,5 +1,6 @@
-import numpy as np
 import types
+
+import numpy as np
 import pytest
 
 from voxen.audio import AudioRecorder

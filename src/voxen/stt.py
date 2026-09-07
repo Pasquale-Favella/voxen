@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from threading import Event, RLock
 from typing import Protocol
 
@@ -18,7 +18,7 @@ class SpeechToTextEngine(Protocol):
     def load(self) -> None:
         ...
 
-    def transcribe(self, audio: object, language: str) -> str:
+    def transcribe(self, audio: object, language: str, should_cancel: Callable[[], bool] | None = None) -> str:
         ...
 
     def unload(self) -> None:
@@ -59,7 +59,7 @@ class FasterWhisperEngine:
             compute_type=self.compute_type,
         )
 
-    def transcribe(self, audio: object, language: str = "auto") -> str:
+    def transcribe(self, audio: object, language: str = "auto", should_cancel: Callable[[], bool] | None = None) -> str:
         if self._model is None:
             self.load()
         segments, _info = self._model.transcribe(
@@ -67,7 +67,12 @@ class FasterWhisperEngine:
             language=None if language == "auto" else language,
             vad_filter=True,
         )
-        return " ".join(segment.text.strip() for segment in segments).strip()
+        parts = []
+        for segment in segments:
+            if should_cancel is not None and should_cancel():
+                raise RuntimeError("Trascrizione annullata.")
+            parts.append(segment.text.strip())
+        return " ".join(parts).strip()
 
     def unload(self) -> None:
         self._model = None
@@ -147,7 +152,7 @@ class ModelManager:
     def transcribe(self, audio, config: ModelConfig, language: str = "auto") -> str:
         with self._lock:
             engine = self.get_engine(config)
-            return engine.transcribe(audio, language)
+            return engine.transcribe(audio, language, should_cancel=self._cancelled.is_set)
 
     def unload(self) -> None:
         with self._lock:

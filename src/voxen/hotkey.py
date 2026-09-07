@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from .domain.hotkey_combo import KeyCombination, normalize_key_name
+
 
 class GlobalHotkey:
     def __init__(self, hotkey: str, on_press: Callable[[], None], on_release: Callable[[], None]) -> None:
@@ -13,45 +15,18 @@ class GlobalHotkey:
         self._pressed = False
         self._keys_down: set[str] = set()
         self._stopping = False
-        parts = [part.strip().lower() for part in hotkey.split("+") if part.strip()]
-        if not parts:
-            raise ValueError("La hotkey non può essere vuota.")
-        self._trigger = self._normalize(parts[-1])
-        self._modifiers = {self._normalize(part) for part in parts[:-1]}
-
-    @staticmethod
-    def _normalize(key: str) -> str:
-        return {
-            "left ctrl": "ctrl",
-            "right ctrl": "ctrl",
-            "ctrl_l": "ctrl",
-            "ctrl_r": "ctrl",
-            "control": "ctrl",
-            "command": "cmd",
-            "cmd_l": "cmd",
-            "cmd_r": "cmd",
-            "option": "alt",
-            "alt_l": "alt",
-            "alt_r": "alt",
-            "alt_gr": "alt",
-            "shift_l": "shift",
-            "shift_r": "shift",
-            "win_l": "win",
-            "win_r": "win",
-            "page_up": "pageup",
-            "page_down": "pagedown",
-            "return": "enter",
-            "escape": "esc",
-        }.get(key, key)
+        combination = KeyCombination.parse(hotkey)
+        self._trigger = combination.trigger
+        self._modifiers = combination.modifiers
 
     def _key_name(self, key) -> str:
         char = getattr(key, "char", None)
         if char:
-            return self._normalize(char.lower())
+            return normalize_key_name(char.lower())
         name = getattr(key, "name", None)
         if name:
-            return self._normalize(name.lower())
-        return self._normalize(str(key).strip("'").lower())
+            return normalize_key_name(name.lower())
+        return normalize_key_name(str(key).strip("'").lower())
 
     def start(self) -> None:
         try:

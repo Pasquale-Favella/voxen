@@ -43,6 +43,23 @@ class FakeRichClipboard:
         self.value = snapshot
 
 
+class FailingClipboard:
+    def __init__(self) -> None:
+        self.value = "previous"
+        self.restored = None
+
+    def snapshot(self):
+        return self.value
+
+    def set_text(self, _text: str) -> None:
+        self.value = None
+        raise RuntimeError("clipboard allocation failed")
+
+    def restore(self, snapshot) -> None:
+        self.restored = snapshot
+        self.value = snapshot
+
+
 def test_injector_restores_previous_clipboard() -> None:
     clipboard = FakeClipboard("previous")
     automation = FakeAutomation()
@@ -80,3 +97,18 @@ def test_injector_restores_an_opaque_clipboard_snapshot() -> None:
     injector.inject("transcript")
 
     assert clipboard.restored == ("html", b"<b>previous</b>")
+
+
+def test_injector_restores_clipboard_when_setting_text_fails() -> None:
+    clipboard = FailingClipboard()
+    injector = ClipboardInjector(
+        sleep=lambda _delay: None,
+        backend=clipboard,
+        automation=FakeAutomation(),
+    )
+
+    with pytest.raises(RuntimeError, match="Impossibile incollare il testo"):
+        injector.inject("transcript")
+
+    assert clipboard.value == "previous"
+    assert clipboard.restored == "previous"

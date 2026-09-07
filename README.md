@@ -31,7 +31,7 @@ Requirements: Python 3.11 or newer and a working microphone.
 ### Windows
 
 ```powershell
-py -3.12 -m venv .venv
+python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"

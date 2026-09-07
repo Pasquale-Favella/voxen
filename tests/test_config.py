@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 import voxen.config as config_module
 from voxen.config import CONFIG_VERSION, AppConfig, ConfigStore
 
@@ -65,6 +67,27 @@ def test_config_ignores_values_with_wrong_types(tmp_path) -> None:
     assert config.auto_paste is AppConfig().auto_paste
 
 
+def test_config_ignores_semantically_invalid_values(tmp_path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps({
+            "model": "unknown",
+            "language": "xx",
+            "sample_rate": 0,
+            "preroll_ms": -1,
+        }),
+        encoding="utf-8",
+    )
+
+    config = ConfigStore(path).load()
+    defaults = AppConfig()
+
+    assert config.model == defaults.model
+    assert config.language == defaults.language
+    assert config.sample_rate == defaults.sample_rate
+    assert config.preroll_ms == defaults.preroll_ms
+
+
 def test_config_uses_application_support_on_macos(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(config_module.sys, "platform", "darwin")
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -80,3 +103,20 @@ def test_config_reads_legacy_macos_location(monkeypatch, tmp_path) -> None:
     legacy_path.write_text(json.dumps({"model": "tiny"}), encoding="utf-8")
 
     assert ConfigStore().load().model == "tiny"
+
+
+def test_config_save_does_not_leave_a_partial_file_if_writing_fails(tmp_path, monkeypatch) -> None:
+    path = tmp_path / "config.json"
+    store = ConfigStore(path)
+    store.save(AppConfig(model="small"))
+
+    def boom(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(config_module.os, "replace", boom)
+
+    with pytest.raises(OSError):
+        store.save(AppConfig(model="tiny"))
+
+    assert ConfigStore(path).load().model == "small"
+    assert list(tmp_path.glob(".config-*.tmp")) == []

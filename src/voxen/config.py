@@ -3,10 +3,24 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 CONFIG_VERSION = 1
+SUPPORTED_MODELS = ("tiny", "base", "small")
+SUPPORTED_LANGUAGES = ("auto", "it", "en", "ja", "fr", "de", "es")
+
+# One predicate per field with a business rule beyond "matches the default's
+# type". Adding a new constrained field means adding one entry here, not
+# editing a chain of if/elif branches.
+_FIELD_VALIDATORS: dict[str, Callable[[object], bool]] = {
+    "model": lambda value: value in SUPPORTED_MODELS,
+    "language": lambda value: value in SUPPORTED_LANGUAGES,
+    "sample_rate": lambda value: value > 0,
+    "preroll_ms": lambda value: value >= 0,
+}
 
 
 @dataclass
@@ -53,14 +67,27 @@ class ConfigStore:
         defaults = asdict(AppConfig())
         for key, default in defaults.items():
             value = values.get(key, default)
-            if type(value) is type(default):
+            if type(value) is type(default) and self._is_valid_value(key, value):
                 defaults[key] = value
         return AppConfig(**defaults)
+
+    @staticmethod
+    def _is_valid_value(key: str, value: object) -> bool:
+        validator = _FIELD_VALIDATORS.get(key)
+        return validator is None or validator(value)
 
     def save(self, config: AppConfig) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         values = {"version": CONFIG_VERSION, **asdict(config)}
-        self.path.write_text(
-            json.dumps(values, indent=2, ensure_ascii=True),
-            encoding="utf-8",
-        )
+        payload = json.dumps(values, indent=2, ensure_ascii=True)
+        fd, tmp_name = tempfile.mkstemp(dir=self.path.parent, prefix=".config-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+            os.replace(tmp_name, self.path)
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise

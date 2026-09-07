@@ -1,6 +1,6 @@
 import pytest
 
-from voxen.state import AppState, AppStateMachine, InvalidStateTransitionError
+from voxen.domain.state import AppState, AppStateMachine, InvalidStateTransitionError
 
 
 def test_app_state_contains_the_application_lifecycle() -> None:

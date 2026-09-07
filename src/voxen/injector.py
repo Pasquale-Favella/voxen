@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import time
 import sys
+import time
 from collections.abc import Callable, Sequence
 from typing import Protocol
 
@@ -233,12 +233,11 @@ class ClipboardInjector:
             automation = automation or pyautogui
 
         previous = backend.snapshot()
-        clipboard_changed = False
+        restore_needed = previous is not None
 
         operation_error = None
         try:
             backend.set_text(text)
-            clipboard_changed = True
             self._sleep(self.paste_delay)
             paste_modifier = "command" if sys.platform == "darwin" else "ctrl"
             automation.hotkey(paste_modifier, "v")
@@ -246,7 +245,7 @@ class ClipboardInjector:
         except Exception as exc:
             operation_error = exc
         finally:
-            if clipboard_changed and previous is not None:
+            if restore_needed:
                 try:
                     backend.restore(previous)
                 except Exception as exc:

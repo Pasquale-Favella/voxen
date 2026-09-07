@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from pathlib import Path
-import sys
 import threading
+from collections.abc import Callable
+
+from .infrastructure.resources import asset_path
 
 
 class SystemTray:
@@ -21,8 +21,7 @@ class SystemTray:
         except ImportError as exc:
             raise RuntimeError("Installa pystray e Pillow per usare la system tray.") from exc
 
-        root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
-        icon_path = root / "assets" / "voxen-mark.png"
+        icon_path = asset_path("voxen-mark.png")
         if not icon_path.exists():
             raise RuntimeError(f"Asset tray non trovato: {icon_path}")
         try:
