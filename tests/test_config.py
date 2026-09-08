@@ -85,7 +85,6 @@ def test_config_ignores_semantically_invalid_values(tmp_path) -> None:
     assert config.model == defaults.model
     assert config.language == defaults.language
     assert config.sample_rate == defaults.sample_rate
-    assert config.preroll_ms == defaults.preroll_ms
 
 
 def test_config_uses_application_support_on_macos(monkeypatch, tmp_path) -> None:

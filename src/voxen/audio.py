@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 import logging
-from collections import deque
 from threading import Lock
 
 logger = logging.getLogger(__name__)
 
 
 class AudioRecorder:
-    """Captures mono 16 kHz audio and retains a short pre-roll window."""
+    """Captures mono 16 kHz audio while a recording is active."""
 
-    def __init__(self, sample_rate: int = 16_000, preroll_ms: int = 500) -> None:
+    def __init__(self, sample_rate: int = 16_000) -> None:
         self.sample_rate = sample_rate
-        self.preroll_ms = preroll_ms
         self._stream = None
-        self._pre_roll: deque[object] = deque(maxlen=max(1, preroll_ms // 20))
         self._recording = False
         self._frames: list[object] = []
         self._level = 0.0
@@ -37,6 +34,12 @@ class AudioRecorder:
             import sounddevice as sd
         except ImportError as exc:
             raise RuntimeError("Installa sounddevice e numpy per acquisire il microfono.") from exc
+
+        with self._lock:
+            if self._stream is not None:
+                return
+            self._last_status = None
+            self._level = 0.0
 
         blocksize = max(1, self.sample_rate // 50)
 
@@ -76,31 +79,42 @@ class AudioRecorder:
 
                 numpy_module = np
             self._level = min(1.0, float(numpy_module.sqrt(numpy_module.mean(block * block)) * 6))
-            self._pre_roll.append(block)
             if self._recording:
                 self._frames.append(block)
 
     def begin(self) -> None:
         with self._lock:
-            self._frames = list(self._pre_roll)
+            self._frames = []
             self._recording = True
 
     def end(self):
-        try:
-            import numpy as np
-        except ImportError as exc:
-            raise RuntimeError("Installa numpy per elaborare l'audio.") from exc
         with self._lock:
             self._recording = False
             frames = self._frames
             self._frames = []
             self._level = 0.0
+        self.close()
+        with self._lock:
+            self._level = 0.0
+        try:
+            import numpy as np
+        except ImportError as exc:
+            raise RuntimeError("Installa numpy per elaborare l'audio.") from exc
         if not frames:
             return np.empty(0, dtype=np.float32)
         return np.concatenate(frames)
 
     def close(self) -> None:
-        if self._stream is not None:
-            self._stream.stop()
-            self._stream.close()
-            self._stream = None
+        with self._lock:
+            stream = self._stream
+        if stream is None:
+            return
+        try:
+            stream.stop()
+        finally:
+            try:
+                stream.close()
+            finally:
+                with self._lock:
+                    if self._stream is stream:
+                        self._stream = None

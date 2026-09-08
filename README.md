@@ -70,7 +70,7 @@ The shortcut can be changed from the dashboard by pressing the desired key combi
 
 - Local speech-to-text with `faster-whisper` and cached models.
 - Italian, English, Japanese, French, German, Spanish, and automatic language detection.
-- 500 ms audio pre-roll to avoid losing the beginning of a sentence.
+- Microphone access only while the global shortcut is held.
 - Conservative cleanup for capitalization, whitespace, and final punctuation; existing punctuation is preserved.
 - Clipboard-based paste with restoration of the previous clipboard contents. Windows and macOS use native clipboard formats when available, with a plain-text fallback.
 - Tray/menu bar background mode with open, pause/resume, and quit actions.
@@ -78,7 +78,7 @@ The shortcut can be changed from the dashboard by pressing the desired key combi
 
 ## Background mode
 
-Closing the dashboard hides it; it does not stop Voxen. The listener, microphone stream, model, tray icon, and global shortcut continue running. Reopen the dashboard from the tray or menu bar.
+Closing the dashboard hides it; it does not stop Voxen. The listener, model, tray icon, and global shortcut continue running. The microphone is opened only while the global shortcut is held. Reopen the dashboard from the tray or menu bar.
 
 On macOS, allow Voxen in **System Settings > Privacy & Security**:
 
@@ -103,7 +103,7 @@ PyInstaller builds for the operating system it runs on, so build on the target p
 .\scripts\build-windows.ps1
 ```
 
-This creates a portable `dist\Voxen\` folder. If Inno Setup is installed, it also creates `dist\installer\Voxen-Setup-0.1.2.exe`; otherwise the script creates `dist\Voxen-windows.zip`.
+This creates a portable `dist\Voxen\` folder. If Inno Setup is installed, it also creates `dist\installer\Voxen-Setup-0.1.6.exe`; otherwise the script creates `dist\Voxen-windows.zip`.
 
 ### macOS
 

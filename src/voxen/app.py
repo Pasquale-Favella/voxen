@@ -40,7 +40,7 @@ class VoxenApp:
         self.store = ConfigStore()
         self.config = self.store.load()
         self.dictation = DictationService(
-            audio=AudioRecorder(self.config.sample_rate, self.config.preroll_ms),
+            audio=AudioRecorder(self.config.sample_rate),
             transcriber=ModelManager(),
             processor=TextProcessor(),
             injector=ClipboardInjector(),
@@ -370,6 +370,7 @@ class VoxenApp:
         self.detail_var.set(f"Model not ready: {event.message}")
 
     def _on_audio_failed(self, event: ev.AudioFailed) -> None:
+        self.overlay.hide()
         self.status_var.set("Error")
         self.detail_var.set(event.message)
 

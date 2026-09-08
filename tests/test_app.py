@@ -312,6 +312,7 @@ def test_audio_failed_shows_error() -> None:
 
     assert app.status_var.value == "Error"
     assert app.detail_var.value == "no microphone"
+    assert app.overlay.hide_calls == 1
 
 
 def test_audio_dropout_is_noted_without_changing_state() -> None:

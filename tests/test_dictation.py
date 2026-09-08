@@ -134,6 +134,7 @@ def test_begin_recording_transitions_to_recording() -> None:
     assert service.begin_recording() is True
 
     assert service.state is AppState.RECORDING
+    assert audio.start_calls == 1
     assert audio.begin_calls == 1
 
 
@@ -263,16 +264,24 @@ def test_engine_failure_enters_error_state() -> None:
     assert service.state is AppState.ERROR
 
 
-def test_audio_start_failure_still_warms_the_engine() -> None:
-    """Matches a pre-existing quirk: a mic failure must not block model warm-up."""
+def test_audio_start_failure_is_reported_when_recording_begins() -> None:
     service, audio, executor, _injector = make_service(
-        initial_state=AppState.STARTING,
+        initial_state=AppState.READY,
         audio=FakeAudio(start_error=RuntimeError("no microphone")),
     )
+    assert service.begin_recording() is False
+
+    assert audio.start_calls == 1
+    assert service.state is AppState.ERROR
+    assert service.drain_events() == [ev.AudioFailed("no microphone")]
+
+
+def test_start_only_warms_the_engine_without_opening_audio() -> None:
+    service, audio, executor, _injector = make_service(initial_state=AppState.STARTING)
     service.start()
 
-    assert service.state is AppState.ERROR
-    assert len(executor.submissions) == 1  # _warm_engine was still submitted
+    assert audio.start_calls == 0
+    assert len(executor.submissions) == 1
 
 
 def test_pause_toggles_only_between_ready_and_paused() -> None:

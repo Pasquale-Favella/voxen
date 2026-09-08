@@ -19,7 +19,6 @@ _FIELD_VALIDATORS: dict[str, Callable[[object], bool]] = {
     "model": lambda value: value in SUPPORTED_MODELS,
     "language": lambda value: value in SUPPORTED_LANGUAGES,
     "sample_rate": lambda value: value > 0,
-    "preroll_ms": lambda value: value >= 0,
 }
 
 
@@ -31,7 +30,6 @@ class AppConfig:
     device: str = "auto"
     compute_type: str = "int8"
     sample_rate: int = 16_000
-    preroll_ms: int = 500
     auto_paste: bool = True
     punctuation: bool = True
 

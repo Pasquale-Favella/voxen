@@ -69,11 +69,6 @@ class DictationService:
     # -- lifecycle -----------------------------------------------------
 
     def start(self) -> None:
-        try:
-            self._audio.start()
-        except Exception as exc:
-            self._state_machine.transition(AppState.ERROR)
-            self._events.put(ev.AudioFailed(str(exc)))
         self._submit(self._warm_engine)
 
     def shutdown(self) -> None:
@@ -102,7 +97,14 @@ class DictationService:
     def begin_recording(self) -> bool:
         if self.state is not AppState.READY:
             return False
-        self._audio.begin()
+        try:
+            self._audio.start()
+            self._audio.begin()
+        except Exception as exc:
+            self._run_step("close the audio stream after recording start failure", self._audio.close)
+            self._state_machine.transition(AppState.ERROR)
+            self._events.put(ev.AudioFailed(str(exc)))
+            return False
         self._state_machine.transition(AppState.RECORDING)
         return True
 
@@ -110,7 +112,12 @@ class DictationService:
         if self.state is not AppState.RECORDING:
             return False
         self._state_machine.transition(AppState.PROCESSING)
-        audio = self._audio.end()
+        try:
+            audio = self._audio.end()
+        except Exception as exc:
+            self._state_machine.transition(AppState.ERROR)
+            self._events.put(ev.AudioFailed(str(exc)))
+            return False
         status = self._audio.last_status
         if status is not None:
             self._events.put(ev.AudioDropout(status))
