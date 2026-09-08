@@ -98,8 +98,8 @@ class DictationService:
         if self.state is not AppState.READY:
             return False
         try:
-            self._audio.start()
             self._audio.begin()
+            self._audio.start()
         except Exception as exc:
             self._run_step("close the audio stream after recording start failure", self._audio.close)
             self._state_machine.transition(AppState.ERROR)

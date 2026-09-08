@@ -76,6 +76,19 @@ class FailingLifecycleService(FakeLifecycleService):
         raise RuntimeError("service shutdown failed")
 
 
+class FakeTaskExecutor:
+    def __init__(self) -> None:
+        self.submissions = []
+        self.shutdown_calls = []
+
+    def submit(self, function, *args):
+        self.submissions.append((function, args))
+        function(*args)
+
+    def shutdown(self, **kwargs) -> None:
+        self.shutdown_calls.append(kwargs)
+
+
 class FakeHotkeyCapture:
     def __init__(self) -> None:
         self.capturing = False
@@ -156,6 +169,7 @@ def make_app(dictation: FakeDictationService | None = None) -> VoxenApp:
     app.status_var = FakeVar()
     app.detail_var = FakeVar()
     app.overlay = FakeOverlay()
+    app.audio_executor = FakeTaskExecutor()
     app.hotkey = None
     app.tray = None
     app.hotkey_capture = None
@@ -217,6 +231,7 @@ def test_toggle_pause_while_recording_finishes_the_recording_instead() -> None:
     app._toggle_pause()
 
     assert app.dictation.state is AppState.PROCESSING
+    app._drain_events()
     assert app.overlay.show_calls == ["processing"]
 
 
@@ -240,7 +255,27 @@ def test_request_helpers_enqueue_ui_commands() -> None:
     kinds = []
     while not app.events.empty():
         kinds.append(app.events.get_nowait()[0])
-    assert kinds == ["show_settings", "toggle_pause", "quit", "recording_start", "recording_stop"]
+    assert kinds == ["show_settings", "toggle_pause", "quit", "recording_started", "recording_stopped"]
+
+
+def test_hotkey_callbacks_control_audio_before_enqueuing_ui_updates() -> None:
+    app = make_app()
+
+    app._request_recording_start()
+    app._request_recording_stop()
+
+    assert app.dictation.begin_calls == 1
+    assert app.dictation.stop_calls == 1
+    assert [app.events.get_nowait()[0], app.events.get_nowait()[0]] == ["recording_started", "recording_stopped"]
+
+
+def test_pause_finishes_recording_on_audio_worker() -> None:
+    app = make_app(FakeDictationService(AppState.RECORDING))
+
+    app._toggle_pause()
+
+    assert app.dictation.stop_calls == 1
+    assert app.audio_executor.submissions[0][0] == app._stop_recording_from_pause
 
 
 def test_drain_events_dispatches_queued_recording_start_command() -> None:
@@ -251,6 +286,18 @@ def test_drain_events_dispatches_queued_recording_start_command() -> None:
 
     assert app.dictation.begin_calls == 1
     assert app.root.scheduled  # rescheduled itself
+
+
+def test_drain_events_only_updates_presentation_for_hotkey_recording_events() -> None:
+    app = make_app()
+    app.events.put(("recording_started", None))
+    app.events.put(("recording_stopped", None))
+
+    app._drain_events()
+
+    assert app.dictation.begin_calls == 0
+    assert app.dictation.stop_calls == 0
+    assert app.overlay.show_calls == ["listening", "processing"]
 
 
 def test_drain_events_dispatches_quit_and_stops_early() -> None:
@@ -388,6 +435,7 @@ def test_close_stops_services_in_order_and_is_idempotent() -> None:
     assert app.hotkey.stop_calls == 1
     assert app.tray.stop_calls == 1
     assert app.root.destroy_calls == 1
+    assert app.audio_executor.shutdown_calls == [{"wait": True, "cancel_futures": False}]
 
 
 def test_close_continues_when_a_service_fails() -> None:

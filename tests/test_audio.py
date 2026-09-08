@@ -46,9 +46,9 @@ def test_audio_recorder_closes_stream_when_recording_ends(monkeypatch) -> None:
     recorder = AudioRecorder()
 
     recorder._last_status = "previous input overflow"
+    recorder.begin()
     recorder.start()
     assert recorder.last_status is None
-    recorder.begin()
     recorder.end()
 
     assert stream_holder["stream"].stopped is True

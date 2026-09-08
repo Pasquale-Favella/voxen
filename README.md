@@ -103,7 +103,7 @@ PyInstaller builds for the operating system it runs on, so build on the target p
 .\scripts\build-windows.ps1
 ```
 
-This creates a portable `dist\Voxen\` folder. If Inno Setup is installed, it also creates `dist\installer\Voxen-Setup-0.1.6.exe`; otherwise the script creates `dist\Voxen-windows.zip`.
+This creates a portable `dist\Voxen\` folder. If Inno Setup is installed, it also creates `dist\installer\Voxen-Setup-0.1.7.exe`; otherwise the script creates `dist\Voxen-windows.zip`.
 
 ### macOS
 

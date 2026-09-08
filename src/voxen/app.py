@@ -47,6 +47,7 @@ class VoxenApp:
             executor=ThreadPoolExecutor(max_workers=1, thread_name_prefix="voxen-stt"),
             config=self.config,
         )
+        self.audio_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voxen-audio")
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.hotkey: GlobalHotkey | None = None
         self.tray: SystemTray | None = None
@@ -269,14 +270,10 @@ class VoxenApp:
 
     def _toggle_pause(self) -> None:
         was_recording = self.state is AppState.RECORDING
-        changed = self.dictation.toggle_pause()
         if was_recording:
-            # Pausing mid-recording finishes the recording (it gets
-            # transcribed) rather than pausing mid-capture.
-            self.status_var.set("Processing...")
-            self.detail_var.set("Whisper is transcribing locally.")
-            self.overlay.show("processing")
+            self.audio_executor.submit(self._stop_recording_from_pause)
             return
+        changed = self.dictation.toggle_pause()
         if not changed:
             return
         if self.state is AppState.READY:
@@ -287,14 +284,22 @@ class VoxenApp:
             self.detail_var.set("Resume from the Voxen tray icon.")
 
     def _request_recording_start(self) -> None:
-        self.events.put(("recording_start", None))
+        if self.dictation.begin_recording():
+            self.events.put(("recording_started", None))
 
     def _request_recording_stop(self) -> None:
-        self.events.put(("recording_stop", None))
+        if self.dictation.stop_recording():
+            self.events.put(("recording_stopped", None))
+
+    def _stop_recording_from_pause(self) -> None:
+        self._request_recording_stop()
 
     def _start_recording(self) -> None:
         if not self.dictation.begin_recording():
             return
+        self._show_recording_started()
+
+    def _show_recording_started(self) -> None:
         self.started_at = time.monotonic()
         self.status_var.set("Listening...")
         self.detail_var.set("Release the hotkey when you finish speaking.")
@@ -304,6 +309,9 @@ class VoxenApp:
     def _stop_recording(self) -> None:
         if not self.dictation.stop_recording():
             return
+        self._show_recording_stopped()
+
+    def _show_recording_stopped(self) -> None:
         self.status_var.set("Processing...")
         self.detail_var.set("Whisper is transcribing locally.")
         self.overlay.show("processing")
@@ -333,6 +341,10 @@ class VoxenApp:
                         self._start_recording()
                     elif kind == "recording_stop":
                         self._stop_recording()
+                    elif kind == "recording_started":
+                        self._show_recording_started()
+                    elif kind == "recording_stopped":
+                        self._show_recording_stopped()
                     else:
                         logger.warning("Unknown UI command: %s", kind)
                 except queue.Empty:
@@ -434,6 +446,10 @@ class VoxenApp:
                 self.tray.stop()
         except Exception:
             logger.exception("Failed to stop the system tray icon during shutdown")
+        try:
+            self.audio_executor.shutdown(wait=True, cancel_futures=False)
+        except Exception:
+            logger.exception("Failed to shut down the audio worker")
         try:
             self.dictation.shutdown()
         except Exception:
