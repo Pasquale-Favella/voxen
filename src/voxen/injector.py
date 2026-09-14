@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import sys
 import time
 from collections.abc import Callable, Sequence
 from typing import Protocol
+
+logger = logging.getLogger(__name__)
 
 
 class ClipboardBackend(Protocol):
@@ -14,6 +17,10 @@ class ClipboardBackend(Protocol):
         ...
 
     def restore(self, snapshot) -> None:
+        ...
+
+    def matches(self, text: str) -> bool:
+        """True if the clipboard still holds exactly ``text`` we set."""
         ...
 
 
@@ -33,6 +40,12 @@ class PlainTextClipboardBackend:
     def restore(self, snapshot) -> None:
         if snapshot is not None:
             self._clipboard.copy(snapshot)
+
+    def matches(self, text: str) -> bool:
+        try:
+            return self._clipboard.paste() == text
+        except Exception:
+            return True
 
 
 class WindowsClipboardBackend:
@@ -137,6 +150,28 @@ class WindowsClipboardBackend:
         finally:
             self._user32.CloseClipboard()
 
+    def matches(self, text: str) -> bool:
+        try:
+            self._open()
+            try:
+                handle = self._user32.GetClipboardData(self.CF_UNICODETEXT)
+                if not handle:
+                    return False
+                size = self._kernel32.GlobalSize(handle)
+                pointer = self._kernel32.GlobalLock(handle)
+                if not pointer:
+                    return True
+                try:
+                    raw = self._ctypes.string_at(pointer, size)
+                finally:
+                    self._kernel32.GlobalUnlock(handle)
+                current = raw.decode("utf-16-le", errors="strict").rstrip("\x00")
+                return current == text
+            finally:
+                self._user32.CloseClipboard()
+        except Exception:
+            return True
+
 
 def _nsdata_to_bytes(data) -> bytes | None:
     """Best-effort NSData -> bytes, tolerating PyObjC version differences."""
@@ -206,6 +241,16 @@ class MacOSClipboardBackend:
         if items and not self._pasteboard.writeObjects_(items):
             raise RuntimeError("Could not restore the macOS clipboard.")
 
+    def matches(self, text: str) -> bool:
+        try:
+            string_type = getattr(self._appkit, "NSPasteboardTypeString", None)
+            if string_type is None:
+                string_type = self._appkit.NSStringPboardType
+            current = self._pasteboard.stringForType_(string_type)
+            return current is not None and str(current) == text
+        except Exception:
+            return True
+
 
 class ClipboardInjector:
     def __init__(
@@ -257,6 +302,7 @@ class ClipboardInjector:
 
         previous = backend.snapshot()
         restore_needed = previous is not None
+        matches = getattr(backend, "matches", None)
 
         operation_error = None
         try:
@@ -270,7 +316,12 @@ class ClipboardInjector:
         finally:
             if restore_needed:
                 try:
-                    backend.restore(previous)
+                    # If the user copied something new during the paste delay,
+                    # keep their content instead of overwriting it with ours.
+                    if matches is not None and not backend.matches(text):
+                        logger.debug("Clipboard changed during paste; skipping restore.")
+                    else:
+                        backend.restore(previous)
                 except Exception as exc:
                     if operation_error is None:
                         operation_error = exc

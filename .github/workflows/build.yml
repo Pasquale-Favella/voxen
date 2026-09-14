@@ -1,14 +1,32 @@
 name: Build Voxen
 
 on:
+  pull_request:
   workflow_dispatch:
   push:
     tags:
       - "v*"
 
 jobs:
+  check:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Lint
+        run: python -m ruff check src tests scripts
+      - name: Run tests
+        run: python -m pytest -q
+
   package:
     name: Package (${{ matrix.os }})
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    needs: check
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:

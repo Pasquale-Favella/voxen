@@ -13,5 +13,5 @@ def test_release_version_matches_project_metadata() -> None:
 
 
 def test_release_version_rejects_mismatched_tag() -> None:
-    with pytest.raises(ValueError, match="incoerenti"):
+    with pytest.raises(ValueError, match="Inconsistent release versions"):
         validate_release_version(ROOT, "v9.9.9")
