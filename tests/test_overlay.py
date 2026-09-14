@@ -139,6 +139,10 @@ class FakeWindll:
 
 
 def make_overlay(monkeypatch, width: int = 320, height: int = 64):
+    # Pin the platform so _monitor_work_area() takes the deterministic
+    # fallback path: on macOS it adds a menu-bar offset that would make
+    # the hardcoded geometry below platform-dependent.
+    monkeypatch.setattr(ov.sys, "platform", "linux")
     windll = FakeWindll()
     monkeypatch.setattr(ctypes, "windll", windll, raising=False)
     app = object.__new__(ov.RecordingOverlay)
@@ -265,3 +269,14 @@ def test_heal_corrects_drift_and_stops_after_budget(monkeypatch) -> None:
 
     assert app._window.geometry_calls == ["320x64+800+1000"]
     assert len(windll.user32.set_calls) == baseline + 1
+
+
+def test_position_accounts_for_macos_menu_bar(monkeypatch) -> None:
+    app, _windll = make_overlay(monkeypatch)
+    monkeypatch.setattr(ov.sys, "platform", "darwin")
+
+    app._position_window()
+
+    # 1080px screen + 25px menu bar: y = (1080 + 25) - 64 - 16.
+    assert app._window.geometry_calls == ["320x64+800+1025"]
+    assert app._target == (800, 1025, 320, 64)
