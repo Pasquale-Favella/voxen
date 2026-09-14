@@ -43,6 +43,8 @@ class RecordingOverlay:
         self._animation_id: str | None = None
         self._elapsed_text = "00:00"
         self._visible = False
+        self._geometry: str | None = None
+        self._applied_size: tuple[int, int] | None = None
 
         self._window = tk.Toplevel(root)
         self._window.withdraw()
@@ -63,14 +65,22 @@ class RecordingOverlay:
         self._canvas = tk.Canvas(self._window, width=_WIDTH, height=_HEIGHT, bg=canvas_bg, highlightthickness=0)
         self._canvas.pack()
         self._build_canvas_items()
+        try:
+            self._window.bind("<Configure>", self._on_configure, add="+")
+        except tk.TclError:
+            pass
 
         # The first time this window is actually mapped, Windows pays a
         # one-time cost (DWM surface/region setup, DPI context binding for
-        # whichever monitor it lands on) that shows up as the pill briefly
+        # whichever monitor it lands on) that showed up as the pill briefly
         # flashing at the wrong size/position before settling. Paying that
         # cost once at startup — at the real target position, shown and
         # hidden again before the user can register it — means the first
-        # real recording behaves exactly like every later one.
+        # real recording behaves exactly like every later one. The warm-up
+        # goes through the same map path as show(), and show() additionally
+        # re-applies the native region *after* mapping plus once on the
+        # next idle cycle, because winfo_width/height read before the first
+        # map can disagree with the mapped size.
         self._root.after(60, self._warm_up)
 
     def _warm_up(self) -> None:
@@ -79,6 +89,8 @@ class RecordingOverlay:
         try:
             self._position_window()
             self._window.deiconify()
+            self._window.update_idletasks()
+            self._apply_native_region(force=True)
             self._window.update()
             self._window.withdraw()
         except tk.TclError:
@@ -121,18 +133,48 @@ class RecordingOverlay:
             self._position_window()
             self._window.deiconify()
             self._visible = True
+            try:
+                self._window.update_idletasks()
+            except tk.TclError:
+                pass
+            self._apply_native_region(force=True)
+            try:
+                self._root.after_idle(self._reapply_after_map)
+            except tk.TclError:
+                pass
         if self._animation_id is None:
             self._animate()
+
+    def _reapply_after_map(self) -> None:
+        """Catch the window manager's post-map correction (DPI/shadow)."""
+        if not self._visible:
+            return
+        try:
+            self._window.update_idletasks()
+        except tk.TclError:
+            return
+        self._apply_native_region(force=True)
+
+    def _on_configure(self, _event) -> None:
+        if not self._visible:
+            return
+        self._apply_native_region()
 
     def _position_window(self) -> None:
         work_left, work_top, work_right, work_bottom = self._monitor_work_area()
         x = work_left + max(0, (work_right - work_left - _WIDTH) // 2)
         y = work_bottom - _HEIGHT - _BOTTOM_MARGIN
-        self._window.geometry(f"{_WIDTH}x{_HEIGHT}+{x}+{y}")
+        geometry = f"{_WIDTH}x{_HEIGHT}+{x}+{y}"
+        # Re-setting identical geometry can make the window manager
+        # re-settle the window for a frame (perceived as a bounce), so only
+        # move when the target actually changed.
+        if geometry != self._geometry:
+            self._window.geometry(geometry)
+            self._geometry = geometry
         self._window.update_idletasks()
         self._apply_native_region()
 
-    def _apply_native_region(self) -> None:
+    def _apply_native_region(self, *, force: bool = False) -> None:
         if not self._native_region:
             return
         try:
@@ -140,10 +182,16 @@ class RecordingOverlay:
 
             width = max(1, self._window.winfo_width())
             height = max(1, self._window.winfo_height())
+            if not force and (width, height) == self._applied_size:
+                return
             radius = min(width, height)
             region = ctypes.windll.gdi32.CreateRoundRectRgn(0, 0, width + 1, height + 1, radius, radius)
-            if region and not ctypes.windll.user32.SetWindowRgn(self._window.winfo_id(), region, True):
+            if not region:
+                return
+            if not ctypes.windll.user32.SetWindowRgn(self._window.winfo_id(), region, True):
                 ctypes.windll.gdi32.DeleteObject(region)
+                return
+            self._applied_size = (width, height)
         except (AttributeError, OSError, tk.TclError):
             self._native_region = False
 
