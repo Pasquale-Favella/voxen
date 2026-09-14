@@ -127,6 +127,7 @@ class DictationService:
     def toggle_pause(self) -> bool:
         if self.state is AppState.RECORDING:
             self.stop_recording()
+            return True
         if self.state is AppState.READY:
             self._state_machine.transition(AppState.PAUSED)
             return True
@@ -134,6 +135,21 @@ class DictationService:
             self._state_machine.transition(AppState.READY)
             return True
         return False
+
+    def retry(self) -> bool:
+        """Recover from ERROR by re-warming the engine. Returns False outside ERROR."""
+        if self.state is not AppState.ERROR:
+            return False
+        self._state_machine.transition(AppState.STARTING)
+        self._submit(self._warm_engine)
+        return True
+
+    def rewarm(self) -> bool:
+        """Preload a newly selected model in the background. No-op unless READY."""
+        if self.state is not AppState.READY:
+            return False
+        self._submit(self._warm_engine)
+        return True
 
     # -- background work --------------------------------------------------
 
@@ -184,7 +200,7 @@ class DictationService:
         try:
             self._injector.inject(text)
             self._events.put(ev.TranscriptPasted(text))
-        except RuntimeError as exc:
+        except Exception as exc:
             self._events.put(ev.PasteFailed(str(exc)))
 
     # -- event draining (call from the thread that owns paste side effects) --

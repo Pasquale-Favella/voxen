@@ -30,3 +30,24 @@ def test_log_dir_uses_platform_appropriate_location(monkeypatch, tmp_path) -> No
     monkeypatch.setattr(logging_setup.Path, "home", lambda: tmp_path)
 
     assert logging_setup._log_dir() == tmp_path / "Library" / "Logs" / "Voxen"
+
+
+def test_configure_is_idempotent_for_the_same_log_path(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(logging_setup, "_log_dir", lambda: tmp_path / "logs")
+    root_logger = logging.getLogger("voxen")
+    original_handlers = list(root_logger.handlers)
+
+    try:
+        first = logging_setup.configure()
+        file_handlers_before = [h for h in root_logger.handlers if isinstance(h, logging_setup.RotatingFileHandler)]
+        second = logging_setup.configure()
+
+        file_handlers_after = [h for h in root_logger.handlers if isinstance(h, logging_setup.RotatingFileHandler)]
+
+        assert first == second
+        assert len(file_handlers_after) == len(file_handlers_before)
+    finally:
+        for handler in list(root_logger.handlers):
+            if handler not in original_handlers:
+                root_logger.removeHandler(handler)
+                handler.close()

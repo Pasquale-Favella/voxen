@@ -57,10 +57,22 @@ _ALIASES = {
 
 _DISPLAY_LABELS = {"cmd": "win" if sys.platform not in ("darwin",) else "cmd"}
 
+_KNOWN_MODIFIERS = frozenset(MODIFIER_ORDER)
+
 
 def normalize_key_name(name: str) -> str:
     """Map any backend's spelling of a key to the canonical name."""
     return _ALIASES.get(name.strip().lower(), name.strip().lower())
+
+
+def _validate(trigger: str, modifiers: frozenset[str]) -> None:
+    unknown = set(modifiers) - _KNOWN_MODIFIERS
+    if unknown:
+        raise ValueError(f"Unknown modifier(s): {', '.join(sorted(unknown))}.")
+    if not modifiers:
+        raise ValueError("The hotkey must include at least one modifier (e.g. ctrl+space).")
+    if trigger in _KNOWN_MODIFIERS:
+        raise ValueError("The hotkey must end with a non-modifier key (e.g. ctrl+space).")
 
 
 @dataclass(frozen=True)
@@ -74,13 +86,18 @@ class KeyCombination:
     def parse(cls, text: str) -> KeyCombination:
         parts = [normalize_key_name(part) for part in text.split("+") if part.strip()]
         if not parts:
-            raise ValueError("La hotkey non può essere vuota.")
+            raise ValueError("The hotkey cannot be empty.")
         *modifiers, trigger = parts
-        return cls(trigger=trigger, modifiers=frozenset(modifiers))
+        modifier_set = frozenset(modifiers)
+        _validate(trigger, modifier_set)
+        return cls(trigger=trigger, modifiers=modifier_set)
 
     @classmethod
     def from_keys(cls, modifiers: set[str], trigger: str) -> KeyCombination:
-        return cls(trigger=normalize_key_name(trigger), modifiers=frozenset(normalize_key_name(m) for m in modifiers))
+        normalized_trigger = normalize_key_name(trigger)
+        normalized_modifiers = frozenset(normalize_key_name(m) for m in modifiers)
+        _validate(normalized_trigger, normalized_modifiers)
+        return cls(trigger=normalized_trigger, modifiers=normalized_modifiers)
 
     def to_config(self) -> str:
         ordered = [name for name in MODIFIER_ORDER if name in self.modifiers]

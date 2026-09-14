@@ -41,7 +41,7 @@ class WindowsClipboardBackend:
 
     def __init__(self) -> None:
         if sys.platform != "win32":
-            raise RuntimeError("Il backend clipboard Windows richiede Windows.")
+            raise RuntimeError("The Windows clipboard backend requires Windows.")
         import ctypes
         from ctypes import wintypes
 
@@ -73,7 +73,7 @@ class WindowsClipboardBackend:
 
     def _open(self) -> None:
         if not self._user32.OpenClipboard(None):
-            raise RuntimeError("Impossibile aprire il clipboard di Windows.")
+            raise RuntimeError("Could not open the Windows clipboard.")
 
     def snapshot(self) -> Sequence[tuple[int, bytes]] | None:
         self._open()
@@ -102,25 +102,25 @@ class WindowsClipboardBackend:
     def _set_format(self, clipboard_format: int, data: bytes) -> None:
         handle = self._kernel32.GlobalAlloc(self.GMEM_MOVEABLE, len(data))
         if not handle:
-            raise RuntimeError("Memoria insufficiente per ripristinare il clipboard.")
+            raise RuntimeError("Not enough memory to restore the clipboard.")
         pointer = self._kernel32.GlobalLock(handle)
         if not pointer:
             self._kernel32.GlobalFree(handle)
-            raise RuntimeError("Impossibile preparare il clipboard di Windows.")
+            raise RuntimeError("Could not prepare the Windows clipboard.")
         try:
             self._ctypes.memmove(pointer, data, len(data))
         finally:
             self._kernel32.GlobalUnlock(handle)
         if not self._user32.SetClipboardData(clipboard_format, handle):
             self._kernel32.GlobalFree(handle)
-            raise RuntimeError("Impossibile ripristinare il clipboard di Windows.")
+            raise RuntimeError("Could not restore the Windows clipboard.")
 
     def set_text(self, text: str) -> None:
         data = text.encode("utf-16-le") + b"\x00\x00"
         self._open()
         try:
             if not self._user32.EmptyClipboard():
-                raise RuntimeError("Impossibile svuotare il clipboard di Windows.")
+                raise RuntimeError("Could not empty the Windows clipboard.")
             self._set_format(self.CF_UNICODETEXT, data)
         finally:
             self._user32.CloseClipboard()
@@ -131,22 +131,42 @@ class WindowsClipboardBackend:
         self._open()
         try:
             if not self._user32.EmptyClipboard():
-                raise RuntimeError("Impossibile svuotare il clipboard di Windows.")
+                raise RuntimeError("Could not empty the Windows clipboard.")
             for clipboard_format, data in snapshot:
                 self._set_format(clipboard_format, data)
         finally:
             self._user32.CloseClipboard()
 
 
+def _nsdata_to_bytes(data) -> bytes | None:
+    """Best-effort NSData -> bytes, tolerating PyObjC version differences."""
+    try:
+        raw = bytes(data)
+        if isinstance(raw, bytes):
+            return raw
+    except Exception:
+        pass
+    try:
+        length = int(data.length())
+        pointer = data.bytes()
+        if pointer and length > 0:
+            import ctypes
+
+            return ctypes.string_at(pointer, length)
+        return b""
+    except Exception:
+        return None
+
+
 class MacOSClipboardBackend:
     def __init__(self) -> None:
         if sys.platform != "darwin":
-            raise RuntimeError("Il backend clipboard macOS richiede macOS.")
+            raise RuntimeError("The macOS clipboard backend requires macOS.")
         try:
             import AppKit
             from Foundation import NSData
         except ImportError as exc:
-            raise RuntimeError("PyObjC non è disponibile per il clipboard macOS.") from exc
+            raise RuntimeError("PyObjC is not available for the macOS clipboard.") from exc
         self._appkit = AppKit
         self._data_class = NSData
         self._pasteboard = AppKit.NSPasteboard.generalPasteboard()
@@ -158,8 +178,11 @@ class MacOSClipboardBackend:
             formats = []
             for type_name in item.types() or []:
                 data = item.dataForType_(type_name)
-                if data is not None:
-                    formats.append((str(type_name), bytes(data)))
+                if data is None:
+                    continue
+                raw = _nsdata_to_bytes(data)
+                if raw is not None:
+                    formats.append((str(type_name), raw))
             snapshot.append(formats)
         return snapshot
 
@@ -169,7 +192,7 @@ class MacOSClipboardBackend:
         if string_type is None:
             string_type = self._appkit.NSStringPboardType
         if not self._pasteboard.setString_forType_(text, string_type):
-            raise RuntimeError("Impossibile impostare il testo nel clipboard macOS.")
+            raise RuntimeError("Could not set text on the macOS clipboard.")
 
     def restore(self, snapshot) -> None:
         self._pasteboard.clearContents()
@@ -181,14 +204,14 @@ class MacOSClipboardBackend:
                 item.setData_forType_(native_data, type_name)
             items.append(item)
         if items and not self._pasteboard.writeObjects_(items):
-            raise RuntimeError("Impossibile ripristinare il clipboard macOS.")
+            raise RuntimeError("Could not restore the macOS clipboard.")
 
 
 class ClipboardInjector:
     def __init__(
         self,
-        paste_delay: float = 0.05,
-        restore_delay: float = 0.15,
+        paste_delay: float = 0.10,
+        restore_delay: float = 0.40,
         sleep: Callable[[float], None] = time.sleep,
         clipboard=None,
         automation=None,
@@ -207,7 +230,7 @@ class ClipboardInjector:
         try:
             import pyperclip
         except ImportError as exc:
-            raise RuntimeError("Installa pyperclip per incollare il testo.") from exc
+            raise RuntimeError("Install pyperclip to paste text.") from exc
         if self._clipboard is not None:
             return PlainTextClipboardBackend(self._clipboard)
         if sys.platform == "win32":
@@ -229,7 +252,7 @@ class ClipboardInjector:
             try:
                 import pyautogui
             except ImportError as exc:
-                raise RuntimeError("Installa pyautogui per incollare il testo.") from exc
+                raise RuntimeError("Install pyautogui to paste text.") from exc
             automation = automation or pyautogui
 
         previous = backend.snapshot()
@@ -253,4 +276,4 @@ class ClipboardInjector:
                         operation_error = exc
 
         if operation_error is not None:
-            raise RuntimeError(f"Impossibile incollare il testo: {operation_error}") from operation_error
+            raise RuntimeError(f"Could not paste text: {operation_error}") from operation_error

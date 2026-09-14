@@ -80,7 +80,7 @@ def test_injector_restores_clipboard_when_paste_fails() -> None:
         automation=FakeAutomation(fail=True),
     )
 
-    with pytest.raises(RuntimeError, match="Impossibile incollare il testo"):
+    with pytest.raises(RuntimeError, match="Could not paste text"):
         injector.inject("transcript")
 
     assert clipboard.value == "previous"
@@ -107,7 +107,7 @@ def test_injector_restores_clipboard_when_setting_text_fails() -> None:
         automation=FakeAutomation(),
     )
 
-    with pytest.raises(RuntimeError, match="Impossibile incollare il testo"):
+    with pytest.raises(RuntimeError, match="Could not paste text"):
         injector.inject("transcript")
 
     assert clipboard.value == "previous"

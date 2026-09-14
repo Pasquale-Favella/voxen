@@ -1,6 +1,6 @@
 import pytest
 
-from voxen.stt import FasterWhisperEngine, ModelConfig, ModelManager
+from voxen.stt import FasterWhisperEngine, ModelConfig, ModelManager, _resolve_compute_type
 
 
 class FakeEngine:
@@ -115,7 +115,7 @@ def test_model_manager_reports_failure_after_retry_limit() -> None:
 
     manager = ModelManager(BrokenEngine, retry_delay=0, sleep=lambda _delay: None)
 
-    with pytest.raises(RuntimeError, match="dopo 3 tentativi"):
+    with pytest.raises(RuntimeError, match="after 3 attempts"):
         manager.get_engine(ModelConfig("base"))
 
 
@@ -123,7 +123,7 @@ def test_model_manager_does_not_start_after_cancellation() -> None:
     manager = ModelManager(FakeEngine)
     manager.cancel()
 
-    with pytest.raises(RuntimeError, match="annullato"):
+    with pytest.raises(RuntimeError, match="cancelled"):
         manager.get_engine(ModelConfig("base"))
 
 
@@ -156,8 +156,15 @@ def test_faster_whisper_engine_stops_between_segments_when_cancelled() -> None:
         calls["count"] += 1
         return calls["count"] >= 2
 
-    with pytest.raises(RuntimeError, match="annullat"):
+    with pytest.raises(RuntimeError, match="cancelled"):
         engine.transcribe([], "it", should_cancel=should_cancel)
 
     # cancellation was observed before the third segment was ever consumed
     assert calls["count"] == 2
+
+
+def test_resolve_compute_type_maps_plain_int8_off_cuda() -> None:
+    assert _resolve_compute_type("int8", "cuda") == "float16"
+    assert _resolve_compute_type("int8", "cpu") == "int8"
+    assert _resolve_compute_type("float16", "cuda") == "float16"
+    assert _resolve_compute_type("int8_float16", "cuda") == "int8_float16"

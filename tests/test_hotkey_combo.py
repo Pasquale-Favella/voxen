@@ -32,3 +32,23 @@ def test_round_trips_through_config_string() -> None:
 def test_display_orders_modifiers_consistently() -> None:
     combo = KeyCombination.parse("shift+ctrl+space")
     assert combo.to_display() == "CTRL + SHIFT + SPACE"
+
+
+def test_rejects_bare_key_without_modifiers() -> None:
+    with pytest.raises(ValueError):
+        KeyCombination.parse("space")
+
+
+def test_rejects_modifier_only_combination() -> None:
+    with pytest.raises(ValueError):
+        KeyCombination.parse("ctrl+shift")
+
+
+def test_rejects_unknown_modifier() -> None:
+    with pytest.raises(ValueError):
+        KeyCombination.parse("foo+space")
+
+
+def test_from_keys_rejects_bare_trigger() -> None:
+    with pytest.raises(ValueError):
+        KeyCombination.from_keys(set(), "space")

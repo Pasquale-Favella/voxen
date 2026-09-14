@@ -65,7 +65,11 @@ class HotkeyCapture:
         if key in _MODIFIER_NAMES:
             self._keys_down.add(key)
             return "break"
-        combo = KeyCombination.from_keys(self._keys_down, key)
+        try:
+            combo = KeyCombination.from_keys(self._keys_down, key)
+        except ValueError:
+            self._hint_var.set("Hold at least one modifier (Ctrl, Alt, Shift, Win/Cmd), then press a key.")
+            return "break"
         self._hotkey_var.set(combo.to_config())
         self._button_var.set(combo.to_display())
         self._hint_var.set("Hotkey updated. Save settings to keep it.")

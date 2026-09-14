@@ -26,16 +26,32 @@ def _log_dir() -> Path:
     return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Voxen" / "logs"
 
 
+def _is_frozen() -> bool:
+    return getattr(sys, "frozen", False) or hasattr(sys, "_MEIPASS")
+
+
 def configure(level: int = logging.INFO) -> Path:
     """Attach a rotating file handler to the ``voxen`` logger tree; return its path."""
     log_dir = _log_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "voxen.log"
 
-    handler = RotatingFileHandler(log_path, maxBytes=_MAX_BYTES, backupCount=_BACKUP_COUNT, encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-
     root_logger = logging.getLogger("voxen")
     root_logger.setLevel(level)
-    root_logger.addHandler(handler)
+    for handler in root_logger.handlers:
+        if isinstance(handler, RotatingFileHandler) and getattr(handler, "_voxen_log_path", None) == str(log_path):
+            break
+    else:
+        handler = RotatingFileHandler(log_path, maxBytes=_MAX_BYTES, backupCount=_BACKUP_COUNT, encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        handler._voxen_log_path = str(log_path)  # type: ignore[attr-defined]
+        root_logger.addHandler(handler)
+    if not _is_frozen():
+        for handler in root_logger.handlers:
+            if isinstance(handler, logging.StreamHandler) and not isinstance(handler, RotatingFileHandler):
+                break
+        else:
+            stream = logging.StreamHandler()
+            stream.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+            root_logger.addHandler(stream)
     return log_path

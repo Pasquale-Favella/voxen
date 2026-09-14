@@ -64,11 +64,16 @@ def main() -> None:
             run([installer, str(ROOT / "installer" / "Voxen.iss")])
         else:
             archive = shutil.make_archive(str(DIST / "Voxen-windows"), "zip", DIST / "Voxen")
-            print(f"Inno Setup non trovato; creato archivio: {archive}")
+            print(f"Inno Setup not found; created archive: {archive}")
     else:
+        # PyInstaller --windowed on macOS emits dist/Voxen.app; fail fast
+        # with a clear message instead of a cryptic hdiutil error.
+        app_bundle = DIST / "Voxen.app"
+        if not app_bundle.exists():
+            raise SystemExit(f"Expected macOS bundle not found: {app_bundle}")
         dmg = DIST / "Voxen-macos.dmg"
-        run(["hdiutil", "create", "-volname", "Voxen", "-srcfolder", str(DIST / "Voxen.app"), "-ov", str(dmg)])
-        print(f"Creato disco di installazione: {dmg}")
+        run(["hdiutil", "create", "-volname", "Voxen", "-srcfolder", str(app_bundle), "-ov", str(dmg)])
+        print(f"Created disk image: {dmg}")
 
 
 if __name__ == "__main__":

@@ -87,6 +87,25 @@ def test_config_ignores_semantically_invalid_values(tmp_path) -> None:
     assert config.sample_rate == defaults.sample_rate
 
 
+def test_config_ignores_invalid_hotkey_device_and_compute_type(tmp_path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps({
+            "hotkey": "space",
+            "device": "tpu",
+            "compute_type": "binary",
+        }),
+        encoding="utf-8",
+    )
+
+    config = ConfigStore(path).load()
+    defaults = AppConfig()
+
+    assert config.hotkey == defaults.hotkey
+    assert config.device == defaults.device
+    assert config.compute_type == defaults.compute_type
+
+
 def test_config_uses_application_support_on_macos(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(config_module.sys, "platform", "darwin")
     monkeypatch.setattr(Path, "home", lambda: tmp_path)

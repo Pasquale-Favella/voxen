@@ -304,6 +304,31 @@ def test_pause_is_a_no_op_while_processing_or_in_error() -> None:
     assert service.state is AppState.ERROR
 
 
+def test_toggle_pause_from_recording_stops_and_reports_true() -> None:
+    service, audio, _executor, _injector = make_service(initial_state=AppState.RECORDING)
+
+    assert service.toggle_pause() is True
+
+    assert service.state is AppState.PROCESSING
+    assert audio.end_calls == 1
+
+
+def test_retry_recovers_from_error_by_rewarming() -> None:
+    service, _audio, executor, _injector = make_service(initial_state=AppState.ERROR)
+
+    assert service.retry() is True
+
+    assert service.state is AppState.STARTING
+    assert len(executor.submissions) == 1
+
+
+def test_retry_is_a_no_op_outside_error() -> None:
+    service, _audio, _executor, _injector = make_service(initial_state=AppState.READY)
+
+    assert service.retry() is False
+    assert service.state is AppState.READY
+
+
 def test_drain_events_ignores_events_once_closing() -> None:
     service, _audio, executor, _injector = make_service(initial_state=AppState.RECORDING)
     service.stop_recording()
