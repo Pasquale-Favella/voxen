@@ -187,29 +187,32 @@ def make_app(dictation: FakeDictationService | None = None) -> VoxenApp:
     return app
 
 
-def test_start_recording_shows_listening_overlay_when_dictation_accepts() -> None:
+def test_hotkey_start_shows_listening_overlay_when_dictation_accepts() -> None:
     app = make_app()
 
-    app._start_recording()
+    app._request_recording_start()
+    app._drain_events()
 
     assert app.dictation.begin_calls == 1
     assert app.overlay.show_calls == ["listening"]
     assert app.status_var.value == "Listening..."
 
 
-def test_start_recording_does_nothing_when_dictation_declines() -> None:
+def test_hotkey_start_shows_nothing_when_dictation_declines() -> None:
     app = make_app()
     app.dictation.begin_recording_result = False
 
-    app._start_recording()
+    app._request_recording_start()
+    app._drain_events()
 
     assert app.overlay.show_calls == []
 
 
-def test_stop_recording_shows_processing_overlay() -> None:
+def test_hotkey_stop_shows_processing_overlay() -> None:
     app = make_app(FakeDictationService(AppState.RECORDING))
 
-    app._stop_recording()
+    app._request_recording_stop()
+    app._drain_events()
 
     assert app.dictation.stop_calls == 1
     assert app.overlay.show_calls == ["processing"]

@@ -225,14 +225,14 @@ class VoxenApp:
 
     def _start_services(self) -> None:
         self.dictation.start()
-        if self.state is not AppState.ERROR:
-            self.status_var.set("Starting...")
-            self.detail_var.set("Loading the local transcription model.")
+        # dictation.start() only queues the warm-up; the engine reports back
+        # via EngineReady/EngineFailed events, so always show "Starting..."
+        # here and let _on_engine_ready replace it.
+        self.status_var.set("Starting...")
+        self.detail_var.set("Loading the local transcription model.")
         try:
             self.hotkey = GlobalHotkey(self.config.hotkey, self._request_recording_start, self._request_recording_stop)
             self.hotkey.start()
-            if self.state is AppState.READY:
-                self.detail_var.set(f"Hold {self.config.hotkey} to dictate.")
         except Exception as exc:
             logger.warning("Failed to start the global hotkey listener: %s", exc)
             self.detail_var.set(str(exc))
@@ -294,22 +294,12 @@ class VoxenApp:
     def _stop_recording_from_pause(self) -> None:
         self._request_recording_stop()
 
-    def _start_recording(self) -> None:
-        if not self.dictation.begin_recording():
-            return
-        self._show_recording_started()
-
     def _show_recording_started(self) -> None:
         self.started_at = time.monotonic()
         self.status_var.set("Listening...")
         self.detail_var.set("Release the hotkey when you finish speaking.")
         self.overlay.show("listening")
         self._update_overlay_clock()
-
-    def _stop_recording(self) -> None:
-        if not self.dictation.stop_recording():
-            return
-        self._show_recording_stopped()
 
     def _show_recording_stopped(self) -> None:
         self.status_var.set("Processing...")

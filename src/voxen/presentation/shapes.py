@@ -11,6 +11,8 @@ from __future__ import annotations
 import tkinter as tk
 from collections.abc import Callable
 
+from . import theme
+
 
 def rounded_rect(canvas: tk.Canvas, x1: float, y1: float, x2: float, y2: float, radius: float, **kwargs) -> int:
     points = [
@@ -50,7 +52,7 @@ class RoundedButton(tk.Canvas):
         parent_bg: str,
         width: int = 180,
         height: int = 40,
-        font: tuple = ("Segoe UI", 10, "bold"),
+        font: tuple | None = None,
     ) -> None:
         super().__init__(parent, width=width, height=height, bg=parent_bg, highlightthickness=0)
         self._command = command
@@ -59,7 +61,7 @@ class RoundedButton(tk.Canvas):
         self._bg = bg
         self._fg = fg
         self._active_bg = active_bg
-        self._font = font
+        self._font = font or (theme.FONT_FAMILY, 10, "bold")
         self._hover = False
         if textvariable is not None:
             textvariable.trace_add("write", lambda *_: self._redraw())
@@ -121,7 +123,7 @@ class Checkbox(tk.Canvas):
         box_border: str,
         check_fg: str,
         parent_bg: str,
-        font: tuple = ("Segoe UI", 9),
+        font: tuple | None = None,
         box_size: int = 16,
         gap: int = 8,
         height: int = 22,
@@ -134,7 +136,7 @@ class Checkbox(tk.Canvas):
         self._box_off_bg = box_off_bg
         self._box_border = box_border
         self._check_fg = check_fg
-        self._font = font
+        self._font = font or (theme.FONT_FAMILY, 9)
         self._box_size = box_size
         self._gap = gap
         self._height = height

@@ -112,3 +112,18 @@ def test_injector_restores_clipboard_when_setting_text_fails() -> None:
 
     assert clipboard.value == "previous"
     assert clipboard.restored == "previous"
+
+
+def test_injector_keeps_user_copy_made_during_paste() -> None:
+    clipboard = FakeClipboard("previous")
+
+    class CopyingAutomation(FakeAutomation):
+        def hotkey(self, modifier: str, key: str) -> None:
+            super().hotkey(modifier, key)
+            clipboard.copy("user-new-copy")
+
+    injector = ClipboardInjector(sleep=lambda _delay: None, clipboard=clipboard, automation=CopyingAutomation())
+
+    injector.inject("transcript")
+
+    assert clipboard.value == "user-new-copy"

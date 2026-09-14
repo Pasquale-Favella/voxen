@@ -14,7 +14,7 @@ def read_versions(root: Path) -> dict[str, str]:
     init_match = re.search(r"^__version__\s*=\s*\"([^\"]+)\"", init_text, re.MULTILINE)
     installer_match = re.search(r'^#define MyAppVersion "([^"]+)"', installer_text, re.MULTILINE)
     if init_match is None or installer_match is None:
-        raise ValueError("Impossibile leggere una versione del progetto.")
+        raise ValueError("Could not read a project version.")
     return {
         "tag": "",
         "project": project["project"]["version"],
@@ -29,14 +29,14 @@ def validate_release_version(root: Path, tag: str) -> str:
     versions["tag"] = expected
     if len(set(versions.values())) != 1:
         details = ", ".join(f"{name}={value}" for name, value in versions.items())
-        raise ValueError(f"Versioni release incoerenti: {details}")
+        raise ValueError(f"Inconsistent release versions: {details}")
     return expected
 
 
 def main() -> int:
     tag = os.environ.get("RELEASE_TAG") or os.environ.get("GITHUB_REF_NAME")
     if not tag:
-        raise SystemExit("RELEASE_TAG o GITHUB_REF_NAME è richiesto.")
+        raise SystemExit("RELEASE_TAG or GITHUB_REF_NAME is required.")
     version = validate_release_version(Path(__file__).resolve().parents[1], tag)
     print(f"Release versions consistent: {version}")
     return 0
