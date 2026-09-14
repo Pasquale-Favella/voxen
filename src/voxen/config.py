@@ -15,10 +15,28 @@ SUPPORTED_LANGUAGES = ("auto", "it", "en", "ja", "fr", "de", "es")
 # One predicate per field with a business rule beyond "matches the default's
 # type". Adding a new constrained field means adding one entry here, not
 # editing a chain of if/elif branches.
+def _is_valid_hotkey(value: object) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        from .domain.hotkey_combo import KeyCombination
+
+        KeyCombination.parse(value)
+    except ValueError:
+        return False
+    return True
+
+
+_ALLOWED_DEVICES = frozenset({"auto", "cpu", "cuda"})
+_ALLOWED_COMPUTE_TYPES = frozenset({"int8", "int8_float16", "int8_float32", "float16", "float32"})
+
 _FIELD_VALIDATORS: dict[str, Callable[[object], bool]] = {
+    "hotkey": _is_valid_hotkey,
     "model": lambda value: value in SUPPORTED_MODELS,
     "language": lambda value: value in SUPPORTED_LANGUAGES,
-    "sample_rate": lambda value: value > 0,
+    "device": lambda value: value in _ALLOWED_DEVICES,
+    "compute_type": lambda value: value in _ALLOWED_COMPUTE_TYPES,
+    "sample_rate": lambda value: isinstance(value, int) and not isinstance(value, bool) and value > 0,
 }
 
 

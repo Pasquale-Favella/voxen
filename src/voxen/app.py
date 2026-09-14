@@ -337,10 +337,6 @@ class VoxenApp:
                     elif kind == "quit":
                         self.close()
                         return
-                    elif kind == "recording_start":
-                        self._start_recording()
-                    elif kind == "recording_stop":
-                        self._stop_recording()
                     elif kind == "recording_started":
                         self._show_recording_started()
                     elif kind == "recording_stopped":
@@ -379,7 +375,7 @@ class VoxenApp:
 
     def _on_engine_failed(self, event: ev.EngineFailed) -> None:
         self.status_var.set("Error")
-        self.detail_var.set(f"Model not ready: {event.message}")
+        self.detail_var.set(f"Model not ready: {event.message} Fix the issue, then click Save settings to retry.")
 
     def _on_audio_failed(self, event: ev.AudioFailed) -> None:
         self.overlay.hide()
@@ -387,7 +383,7 @@ class VoxenApp:
         self.detail_var.set(event.message)
 
     def _on_audio_dropout(self, event: ev.AudioDropout) -> None:
-        self.detail_var.set(f"Audio non stabile durante la registrazione: {event.message}")
+        self.detail_var.set(f"Unstable audio during recording: {event.message}")
 
     def _on_no_speech_detected(self, _event: ev.NoSpeechDetected) -> None:
         self.overlay.hide()
@@ -412,22 +408,47 @@ class VoxenApp:
     def _on_transcription_failed(self, event: ev.TranscriptionFailed) -> None:
         self.overlay.hide()
         self.status_var.set("Error")
-        self.detail_var.set(event.message)
+        self.detail_var.set(f"{event.message} Click Save settings to retry.")
 
     def _on_unexpected_error(self, event: ev.UnexpectedError) -> None:
         self.overlay.hide()
         self.status_var.set("Error")
-        self.detail_var.set(event.message)
+        self.detail_var.set(f"{event.message} Click Save settings to retry.")
+
+    def _retry_engine(self) -> bool:
+        """Leave ERROR by re-warming the model. Returns True if a retry started."""
+        if self.dictation.retry():
+            self.status_var.set("Starting...")
+            self.detail_var.set("Downloading or loading the local transcription model.")
+            return True
+        return False
 
     def _save_settings(self) -> None:
         if self.hotkey_capture is not None and self.hotkey_capture.capturing:
             self.hotkey_capture.finish()
+        try:
+            HotkeyCapture.display_text(self.hotkey_var.get().strip() or "ctrl+space")
+        except ValueError as exc:
+            self.detail_var.set(str(exc))
+            return
+        previous_model = (self.config.model, self.config.device, self.config.compute_type)
         self.config.hotkey = self.hotkey_var.get().strip() or "ctrl+space"
         self.config.model = self.model_var.get()
         self.config.language = self.language_var.get()
         self.config.auto_paste = self.auto_paste_var.get()
         self.config.punctuation = self.punctuation_var.get()
-        self.store.save(self.config)
+        try:
+            self.store.save(self.config)
+        except OSError as exc:
+            self.detail_var.set(f"Could not save settings: {exc}")
+            return
+        if self.state is AppState.ERROR:
+            self._retry_engine()
+            return
+        current_model = (self.config.model, self.config.device, self.config.compute_type)
+        if current_model != previous_model and self.dictation.rewarm():
+            self.detail_var.set("Settings saved. Loading the new model in the background.")
+            return
         self.detail_var.set(f"Settings saved. Hold {self.config.hotkey} to dictate.")
 
     def _cancel_hotkey_capture(self) -> None:

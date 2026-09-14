@@ -47,8 +47,8 @@ OVERLAY_SHELL_BORDER = "#26262c"
 OVERLAY_HINT = "#8e8e96"
 OVERLAY_BAR_BRIGHT = "#b9f8d6"
 
-FONT_FAMILY = "Segoe UI"
-MONO_FAMILY = "Consolas"
+FONT_FAMILY = "Segoe UI" if sys.platform == "win32" else ("SF Pro Text" if sys.platform == "darwin" else "DejaVu Sans")
+MONO_FAMILY = "Consolas" if sys.platform == "win32" else ("SF Mono" if sys.platform == "darwin" else "DejaVu Sans Mono")
 
 
 def enable_dark_titlebar(root: tk.Tk) -> None:

@@ -78,7 +78,7 @@ def test_audio_recorder_normalizes_stream_start_failure(monkeypatch) -> None:
     monkeypatch.setitem(__import__("sys").modules, "sounddevice", fake_sounddevice)
     recorder = AudioRecorder()
 
-    with pytest.raises(RuntimeError, match="Impossibile avviare il microfono"):
+    with pytest.raises(RuntimeError, match="Could not start the microphone"):
         recorder.start()
 
     assert recorder._stream is None

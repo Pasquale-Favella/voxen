@@ -34,6 +34,6 @@ class AppStateMachine:
             return
         if next_state not in self._transitions[self.current]:
             raise InvalidStateTransitionError(
-                f"Transizione non valida: {self.current.name} -> {next_state.name}."
+                f"Invalid transition: {self.current.name} -> {next_state.name}."
             )
         self.current = next_state

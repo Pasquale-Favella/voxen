@@ -33,7 +33,7 @@ class AudioRecorder:
             import numpy as np
             import sounddevice as sd
         except ImportError as exc:
-            raise RuntimeError("Installa sounddevice e numpy per acquisire il microfono.") from exc
+            raise RuntimeError("Install sounddevice and numpy to capture the microphone.") from exc
 
         blocksize = max(1, self.sample_rate // 50)
 
@@ -64,7 +64,7 @@ class AudioRecorder:
                     except Exception:
                         pass
                 self._stream = None
-                raise RuntimeError(f"Impossibile avviare il microfono: {exc}") from exc
+                raise RuntimeError(f"Could not start the microphone: {exc}") from exc
 
     def _handle_block(self, block, status=None, numpy_module=None) -> None:
         if status:
@@ -98,7 +98,7 @@ class AudioRecorder:
         try:
             import numpy as np
         except ImportError as exc:
-            raise RuntimeError("Installa numpy per elaborare l'audio.") from exc
+            raise RuntimeError("Install numpy to process audio.") from exc
         if not frames:
             return np.empty(0, dtype=np.float32)
         return np.concatenate(frames)

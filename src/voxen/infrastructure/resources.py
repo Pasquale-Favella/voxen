@@ -37,7 +37,7 @@ def _find_assets_root() -> Path:
         if (candidate / _ASSETS_DIRNAME).is_dir():
             return candidate
     raise AssetNotFoundError(
-        f"Impossibile trovare la cartella '{_ASSETS_DIRNAME}' a partire da {Path(__file__).resolve()}."
+        f"Could not find the '{_ASSETS_DIRNAME}' folder starting from {Path(__file__).resolve()}."
     )
 
 

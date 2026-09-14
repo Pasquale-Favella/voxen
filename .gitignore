@@ -6,6 +6,8 @@ __pycache__/
 .vscode/*.log
 build/
 dist/
+# PyInstaller generates Voxen.spec on every build; scripts/build.py is the
+# canonical config, so keep the generated spec out of version control.
 *.spec
 
 # Local configuration and Whisper model caches

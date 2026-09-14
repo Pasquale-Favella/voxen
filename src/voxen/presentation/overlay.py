@@ -165,11 +165,17 @@ class RecordingOverlay:
                     return info.work.left, info.work.top, info.work.right, info.work.bottom
             except (AttributeError, OSError, tk.TclError):
                 pass
+        left = self._root.winfo_vrootx()
+        top = self._root.winfo_vrooty()
+        # On macOS the top menu bar (~25px) is part of the full screen size;
+        # keep the pill clear of it when no native work-area API is used.
+        if sys.platform == "darwin":
+            top += 25
         return (
-            self._root.winfo_vrootx(),
-            self._root.winfo_vrooty(),
-            self._root.winfo_vrootx() + self._root.winfo_screenwidth(),
-            self._root.winfo_vrooty() + self._root.winfo_screenheight(),
+            left,
+            top,
+            left + self._root.winfo_screenwidth(),
+            top + self._root.winfo_screenheight(),
         )
 
     def set_elapsed_seconds(self, seconds: int) -> None:

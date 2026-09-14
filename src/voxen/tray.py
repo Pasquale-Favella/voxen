@@ -19,11 +19,11 @@ class SystemTray:
             import pystray
             from PIL import Image
         except ImportError as exc:
-            raise RuntimeError("Installa pystray e Pillow per usare la system tray.") from exc
+            raise RuntimeError("Install pystray and Pillow to use the system tray.") from exc
 
         icon_path = asset_path("voxen-mark.png")
         if not icon_path.exists():
-            raise RuntimeError(f"Asset tray non trovato: {icon_path}")
+            raise RuntimeError(f"Tray asset not found: {icon_path}")
         try:
             image = Image.open(icon_path)
             menu = pystray.Menu(
@@ -38,7 +38,7 @@ class SystemTray:
         except Exception as exc:
             self._icon = None
             self._thread = None
-            raise RuntimeError(f"Impossibile avviare la system tray: {exc}") from exc
+            raise RuntimeError(f"Could not start the system tray: {exc}") from exc
 
     def stop(self) -> None:
         if self._icon is not None:

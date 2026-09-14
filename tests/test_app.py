@@ -152,6 +152,15 @@ class FakeDictationService:
             return True
         return False
 
+    def retry(self) -> bool:
+        if self.state is not AppState.ERROR:
+            return False
+        self.state = AppState.STARTING
+        return True
+
+    def rewarm(self) -> bool:
+        return self.state is AppState.READY
+
     def drain_events(self) -> list[ev.DictationEvent]:
         events, self._pending_events = self._pending_events, []
         return events
@@ -278,14 +287,14 @@ def test_pause_finishes_recording_on_audio_worker() -> None:
     assert app.audio_executor.submissions[0][0] == app._stop_recording_from_pause
 
 
-def test_drain_events_dispatches_queued_recording_start_command() -> None:
+def test_drain_events_ignores_legacy_recording_start_command() -> None:
     app = make_app()
     app.events.put(("recording_start", None))
 
     app._drain_events()
 
-    assert app.dictation.begin_calls == 1
-    assert app.root.scheduled  # rescheduled itself
+    assert app.dictation.begin_calls == 0
+    assert app.root.scheduled  # still rescheduled itself
 
 
 def test_drain_events_only_updates_presentation_for_hotkey_recording_events() -> None:
@@ -419,7 +428,7 @@ def test_transcription_failed_shows_error() -> None:
     app._drain_events()
 
     assert app.status_var.value == "Error"
-    assert app.detail_var.value == "model crashed"
+    assert "model crashed" in app.detail_var.value
 
 
 def test_close_stops_services_in_order_and_is_idempotent() -> None:
@@ -470,7 +479,7 @@ def test_save_settings_updates_config_and_persists() -> None:
     assert app.config.auto_paste is False
     assert app.config.punctuation is False
     assert saved == [app.config]
-    assert "ctrl+shift+space" in app.detail_var.value
+    assert "Settings saved." in app.detail_var.value
 
 
 def test_save_settings_finishes_an_in_progress_capture_first() -> None:
@@ -547,3 +556,36 @@ def test_on_hotkey_captured_reports_an_invalid_combination(monkeypatch) -> None:
     app._on_hotkey_captured("")
 
     assert "bad combo" in app.detail_var.value
+
+
+def test_save_settings_rejects_modifier_less_hotkey() -> None:
+    app = make_app()
+    app.config = AppConfig()
+    saved = []
+    app.store = SimpleNamespace(save=lambda cfg: saved.append(cfg))
+    app.hotkey_var = FakeVar("space")
+    app.model_var = FakeVar(app.config.model)
+    app.language_var = FakeVar(app.config.language)
+    app.auto_paste_var = FakeVar(app.config.auto_paste)
+    app.punctuation_var = FakeVar(app.config.punctuation)
+
+    app._save_settings()
+
+    assert saved == []
+    assert "modifier" in app.detail_var.value.lower()
+
+
+def test_save_settings_retries_after_error() -> None:
+    app = make_app(FakeDictationService(AppState.ERROR))
+    app.config = AppConfig()
+    app.store = SimpleNamespace(save=lambda cfg: None)
+    app.hotkey_var = FakeVar("ctrl+space")
+    app.model_var = FakeVar(app.config.model)
+    app.language_var = FakeVar(app.config.language)
+    app.auto_paste_var = FakeVar(app.config.auto_paste)
+    app.punctuation_var = FakeVar(app.config.punctuation)
+
+    app._save_settings()
+
+    assert app.dictation.state is AppState.STARTING
+    assert app.status_var.value == "Starting..."

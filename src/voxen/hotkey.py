@@ -32,7 +32,7 @@ class GlobalHotkey:
         try:
             from pynput import keyboard
         except ImportError as exc:
-            raise RuntimeError("Installa pynput per usare la hotkey globale.") from exc
+            raise RuntimeError("Install pynput to use the global hotkey.") from exc
 
         self._keyboard = keyboard
         self._stopping = False
@@ -45,7 +45,7 @@ class GlobalHotkey:
             self._listener.start()
         except Exception as exc:
             self._listener = None
-            raise RuntimeError(f"Impossibile attivare la hotkey globale: {exc}") from exc
+            raise RuntimeError(f"Could not enable the global hotkey: {exc}") from exc
 
     def _handle_listener_stop(self) -> None:
         was_pressed = self._pressed
