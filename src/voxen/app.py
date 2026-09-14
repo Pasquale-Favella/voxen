@@ -487,12 +487,20 @@ _EVENT_HANDLERS = {
 
 
 def main() -> None:
+    from .infrastructure.dpi import ensure_awareness
     from .infrastructure.logging_setup import configure as configure_logging
 
     try:
         configure_logging()
     except OSError as exc:
         logger.warning("Failed to set up file logging: %s", exc)
+
+    # Must run before tk.Tk(): awareness can only be set once per process,
+    # and every Win32 metric read afterwards depends on it (see dpi.py).
+    try:
+        ensure_awareness()
+    except Exception:
+        logger.warning("Failed to set DPI awareness", exc_info=True)
 
     root = tk.Tk()
     VoxenApp(root)

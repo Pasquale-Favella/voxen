@@ -12,6 +12,7 @@ rectangle on an opaque backdrop.
 
 from __future__ import annotations
 
+import logging
 import math
 import sys
 import tkinter as tk
@@ -20,11 +21,14 @@ from collections.abc import Callable
 from . import theme
 from .shapes import rounded_rect
 
+logger = logging.getLogger(__name__)
+
 _WIDTH = 320
 _HEIGHT = 64
 _RADIUS = _HEIGHT / 2 - 1
 _BAR_COUNT = 22
 _BOTTOM_MARGIN = 16
+_MAX_HEALS = 3
 
 _MODE_ACCENT = {
     "listening": theme.ACCENT,
@@ -43,6 +47,10 @@ class RecordingOverlay:
         self._animation_id: str | None = None
         self._elapsed_text = "00:00"
         self._visible = False
+        self._geometry: str | None = None
+        self._applied_size: tuple[int, int] | None = None
+        self._target: tuple[int, int, int, int] | None = None
+        self._heals = 0
 
         self._window = tk.Toplevel(root)
         self._window.withdraw()
@@ -63,14 +71,22 @@ class RecordingOverlay:
         self._canvas = tk.Canvas(self._window, width=_WIDTH, height=_HEIGHT, bg=canvas_bg, highlightthickness=0)
         self._canvas.pack()
         self._build_canvas_items()
+        try:
+            self._window.bind("<Configure>", self._on_configure, add="+")
+        except tk.TclError:
+            pass
 
         # The first time this window is actually mapped, Windows pays a
         # one-time cost (DWM surface/region setup, DPI context binding for
-        # whichever monitor it lands on) that shows up as the pill briefly
+        # whichever monitor it lands on) that showed up as the pill briefly
         # flashing at the wrong size/position before settling. Paying that
         # cost once at startup — at the real target position, shown and
         # hidden again before the user can register it — means the first
-        # real recording behaves exactly like every later one.
+        # real recording behaves exactly like every later one. The warm-up
+        # goes through the same map path as show(), and show() additionally
+        # re-applies the native region *after* mapping plus once on the
+        # next idle cycle, because winfo_width/height read before the first
+        # map can disagree with the mapped size.
         self._root.after(60, self._warm_up)
 
     def _warm_up(self) -> None:
@@ -79,6 +95,8 @@ class RecordingOverlay:
         try:
             self._position_window()
             self._window.deiconify()
+            self._window.update_idletasks()
+            self._apply_native_region(force=True)
             self._window.update()
             self._window.withdraw()
         except tk.TclError:
@@ -118,21 +136,85 @@ class RecordingOverlay:
     def show(self, mode: str) -> None:
         self._mode = mode
         if not self._visible:
+            self._heals = 0
             self._position_window()
             self._window.deiconify()
             self._visible = True
+            try:
+                self._window.update_idletasks()
+            except tk.TclError:
+                pass
+            self._apply_native_region(force=True)
+            try:
+                actual = (
+                    self._window.winfo_x(),
+                    self._window.winfo_y(),
+                    self._window.winfo_width(),
+                    self._window.winfo_height(),
+                )
+            except tk.TclError:
+                actual = None
+            logger.info("Overlay shown: mode=%s target=%s actual=%s", mode, self._target, actual)
+            try:
+                self._root.after_idle(self._reapply_after_map)
+            except tk.TclError:
+                pass
         if self._animation_id is None:
             self._animate()
 
-    def _position_window(self) -> None:
+    def _reapply_after_map(self) -> None:
+        """Catch the window manager's post-map correction (DPI/shadow)."""
+        if not self._visible:
+            return
+        self._heal_if_drifted()
+
+    def _heal_if_drifted(self) -> None:
+        """Snap back to the target rect if the manager moved/resized us.
+
+        Deviation-triggered only, and bounded per show, so this can fix a
+        first-map settle without ever fighting the window manager in a loop.
+        """
+        if not self._visible or self._target is None or self._heals >= _MAX_HEALS:
+            return
+        try:
+            actual = (
+                self._window.winfo_x(),
+                self._window.winfo_y(),
+                self._window.winfo_width(),
+                self._window.winfo_height(),
+            )
+        except tk.TclError:
+            return
+        if actual == self._target:
+            self._apply_native_region()
+            return
+        logger.info("Overlay drifted: target=%s actual=%s; correcting", self._target, actual)
+        # _position_window re-applies the region when the size changed;
+        # a pure position drift needs no region refresh (it is size-based).
+        self._position_window(force=True)
+        self._heals += 1
+
+    def _on_configure(self, _event) -> None:
+        if not self._visible:
+            return
+        self._apply_native_region()
+
+    def _position_window(self, *, force: bool = False) -> None:
         work_left, work_top, work_right, work_bottom = self._monitor_work_area()
         x = work_left + max(0, (work_right - work_left - _WIDTH) // 2)
         y = work_bottom - _HEIGHT - _BOTTOM_MARGIN
-        self._window.geometry(f"{_WIDTH}x{_HEIGHT}+{x}+{y}")
+        self._target = (x, y, _WIDTH, _HEIGHT)
+        geometry = f"{_WIDTH}x{_HEIGHT}+{x}+{y}"
+        # Re-setting identical geometry can make the window manager
+        # re-settle the window for a frame (perceived as a bounce), so only
+        # move when the target actually changed (or healing forces it).
+        if force or geometry != self._geometry:
+            self._window.geometry(geometry)
+            self._geometry = geometry
         self._window.update_idletasks()
         self._apply_native_region()
 
-    def _apply_native_region(self) -> None:
+    def _apply_native_region(self, *, force: bool = False) -> None:
         if not self._native_region:
             return
         try:
@@ -140,10 +222,16 @@ class RecordingOverlay:
 
             width = max(1, self._window.winfo_width())
             height = max(1, self._window.winfo_height())
+            if not force and (width, height) == self._applied_size:
+                return
             radius = min(width, height)
             region = ctypes.windll.gdi32.CreateRoundRectRgn(0, 0, width + 1, height + 1, radius, radius)
-            if region and not ctypes.windll.user32.SetWindowRgn(self._window.winfo_id(), region, True):
+            if not region:
+                return
+            if not ctypes.windll.user32.SetWindowRgn(self._window.winfo_id(), region, True):
                 ctypes.windll.gdi32.DeleteObject(region)
+                return
+            self._applied_size = (width, height)
         except (AttributeError, OSError, tk.TclError):
             self._native_region = False
 
@@ -190,8 +278,15 @@ class RecordingOverlay:
 
     def _animate(self) -> None:
         if not self._window.winfo_viewable():
-            self._animation_id = None
+            # The first frame can run before the server maps the window;
+            # retry instead of giving up, otherwise the pill would stay
+            # frozen until the next show() (a visible jump on hotkey release).
+            try:
+                self._animation_id = self._root.after(45, self._animate)
+            except tk.TclError:
+                self._animation_id = None
             return
+        self._heal_if_drifted()
         canvas = self._canvas
 
         accent = _MODE_ACCENT[self._mode]
