@@ -11,6 +11,7 @@ the window manager re-settle the window for a frame.
 from __future__ import annotations
 
 import ctypes
+import re
 
 from voxen.presentation import overlay as ov
 
@@ -19,6 +20,8 @@ class FakeWindow:
     def __init__(self, width: int = 320, height: int = 64) -> None:
         self._width = width
         self._height = height
+        self._x = 0
+        self._y = 0
         self.geometry_calls: list[str] = []
         self.deiconify_calls = 0
         self.withdraw_calls = 0
@@ -29,6 +32,9 @@ class FakeWindow:
 
     def geometry(self, spec: str) -> None:
         self.geometry_calls.append(spec)
+        match = re.search(r"([+-]\d+)([+-]\d+)$", spec)
+        if match:
+            self._x, self._y = int(match.group(1)), int(match.group(2))
 
     def update_idletasks(self) -> None:
         self.update_idletasks_calls += 1
@@ -43,6 +49,12 @@ class FakeWindow:
     def withdraw(self) -> None:
         self.withdraw_calls += 1
         self.viewable = False
+
+    def winfo_x(self) -> int:
+        return self._x
+
+    def winfo_y(self) -> int:
+        return self._y
 
     def winfo_width(self) -> int:
         return self._width
@@ -63,8 +75,16 @@ class FakeWindow:
 
 class FakeRoot:
     def __init__(self) -> None:
+        self.after_calls: list = []
         self.after_idle_calls: list = []
         self.after_cancel_calls: list = []
+        self._next_id = 0
+
+    def after(self, delay, func):
+        self._next_id += 1
+        ident = f"after-{self._next_id}"
+        self.after_calls.append((delay, func))
+        return ident
 
     def after_idle(self, func):
         self.after_idle_calls.append(func)
@@ -128,6 +148,8 @@ def make_overlay(monkeypatch, width: int = 320, height: int = 64):
     app._visible = False
     app._geometry = None
     app._applied_size = None
+    app._target = None
+    app._heals = 0
     app._native_region = True
     # Skip the animation loop: these tests cover mapping/region only.
     app._animation_id = "running"
@@ -200,3 +222,46 @@ def test_reapply_after_map_is_a_noop_once_hidden(monkeypatch) -> None:
     app._reapply_after_map()
 
     assert len(windll.user32.set_calls) == calls_after_show
+
+
+def test_animate_retries_instead_of_dying_when_not_yet_viewable(monkeypatch) -> None:
+    app, _windll = make_overlay(monkeypatch)
+    app._animation_id = None
+    app._window.viewable = False
+
+    app._animate()
+
+    assert app._animation_id is not None
+    assert app._root.after_calls and app._root.after_calls[-1][0] == 45
+
+
+def test_heal_corrects_drift_and_stops_after_budget(monkeypatch) -> None:
+    app, windll = make_overlay(monkeypatch)
+    app._visible = True
+    app._target = (800, 1000, 320, 64)
+    app._geometry = "320x64+800+1000"
+    app._applied_size = (320, 64)
+    app._window._x, app._window._y = 800, 1000
+
+    # Matching rect: only the size-guarded region check, no correction.
+    app._heal_if_drifted()
+
+    assert app._heals == 0
+    assert app._window.geometry_calls == []
+    baseline = len(windll.user32.set_calls)
+
+    # Drifted size: force geometry + region, consuming budget.
+    app._window._width = 322
+    app._heal_if_drifted()
+
+    assert app._heals == 1
+    assert app._window.geometry_calls == ["320x64+800+1000"]
+    assert len(windll.user32.set_calls) == baseline + 1
+
+    # Budget exhausted: no more fighting the window manager.
+    app._heals = 3
+    app._window._width = 330
+    app._heal_if_drifted()
+
+    assert app._window.geometry_calls == ["320x64+800+1000"]
+    assert len(windll.user32.set_calls) == baseline + 1
