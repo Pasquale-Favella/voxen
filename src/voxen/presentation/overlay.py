@@ -146,16 +146,6 @@ class RecordingOverlay:
                 pass
             self._apply_native_region(force=True)
             try:
-                actual = (
-                    self._window.winfo_x(),
-                    self._window.winfo_y(),
-                    self._window.winfo_width(),
-                    self._window.winfo_height(),
-                )
-            except tk.TclError:
-                actual = None
-            logger.info("Overlay shown: mode=%s target=%s actual=%s", mode, self._target, actual)
-            try:
                 self._root.after_idle(self._reapply_after_map)
             except tk.TclError:
                 pass
@@ -188,7 +178,7 @@ class RecordingOverlay:
         if actual == self._target:
             self._apply_native_region()
             return
-        logger.info("Overlay drifted: target=%s actual=%s; correcting", self._target, actual)
+        logger.debug("Overlay drifted: target=%s actual=%s; correcting", self._target, actual)
         # _position_window re-applies the region when the size changed;
         # a pure position drift needs no region refresh (it is size-based).
         self._position_window(force=True)

@@ -22,13 +22,35 @@ class FakeVar:
 
 
 class FakeRoot:
-    def __init__(self) -> None:
+    def __init__(self, req_size=(560, 520), screen_size=(1920, 1080)) -> None:
         self.scheduled = []
         self.destroy_calls = 0
+        self.req_size = req_size
+        self.screen_size = screen_size
+        self.geometry_spec: str | None = None
+        self.update_idletasks_calls = 0
 
     def after(self, delay, callback):
         self.scheduled.append((delay, callback))
         return len(self.scheduled)
+
+    def update_idletasks(self) -> None:
+        self.update_idletasks_calls += 1
+
+    def winfo_reqwidth(self) -> int:
+        return self.req_size[0]
+
+    def winfo_reqheight(self) -> int:
+        return self.req_size[1]
+
+    def winfo_screenwidth(self) -> int:
+        return self.screen_size[0]
+
+    def winfo_screenheight(self) -> int:
+        return self.screen_size[1]
+
+    def geometry(self, spec: str) -> None:
+        self.geometry_spec = spec
 
     def withdraw(self) -> None:
         pass
@@ -592,3 +614,30 @@ def test_save_settings_retries_after_error() -> None:
 
     assert app.dictation.state is AppState.STARTING
     assert app.status_var.value == "Starting..."
+
+
+def test_fit_window_to_content_uses_requested_size() -> None:
+    app = make_app()
+    app.root = FakeRoot(req_size=(540, 610), screen_size=(1920, 1080))
+
+    app._fit_window_to_content()
+
+    assert app.root.geometry_spec == "540x610"
+
+
+def test_fit_window_to_content_respects_minimum_size() -> None:
+    app = make_app()
+    app.root = FakeRoot(req_size=(100, 100), screen_size=(1920, 1080))
+
+    app._fit_window_to_content()
+
+    assert app.root.geometry_spec == "500x460"
+
+
+def test_fit_window_to_content_clamps_to_screen() -> None:
+    app = make_app()
+    app.root = FakeRoot(req_size=(2000, 2000), screen_size=(800, 600))
+
+    app._fit_window_to_content()
+
+    assert app.root.geometry_spec == "800x552"

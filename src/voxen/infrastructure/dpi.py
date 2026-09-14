@@ -43,19 +43,19 @@ def ensure_awareness() -> str | None:
         return None
     try:
         if windll.user32.SetProcessDpiAwarenessContext(_V2_CONTEXT):
-            logger.info("DPI awareness: per-monitor V2")
+            logger.debug("DPI awareness: per-monitor V2")
             return "per-monitor-v2"
     except (AttributeError, OSError):
         pass
     try:
         if windll.shcore.SetProcessDpiAwareness(_PER_MONITOR_AWARE) == _S_OK:
-            logger.info("DPI awareness: per-monitor (shcore)")
+            logger.debug("DPI awareness: per-monitor (shcore)")
             return "per-monitor"
     except (AttributeError, OSError):
         pass
     try:
         if windll.user32.SetProcessDPIAware():
-            logger.info("DPI awareness: system")
+            logger.debug("DPI awareness: system")
             return "system"
     except (AttributeError, OSError):
         pass

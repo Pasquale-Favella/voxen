@@ -32,7 +32,6 @@ class VoxenApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Voxen")
-        self.root.geometry("560x520")
         self.root.minsize(500, 460)
         self.root.configure(bg=theme.BACKGROUND)
         theme.enable_dark_titlebar(self.root)
@@ -67,6 +66,7 @@ class VoxenApp:
         self.started_at = 0.0
 
         self._build_ui()
+        self._fit_window_to_content()
         self.overlay = RecordingOverlay(self.root, level_provider=lambda: self.dictation.audio_level)
         self.root.withdraw()
         self._start_services()
@@ -196,6 +196,23 @@ class VoxenApp:
             font=(theme.FONT_FAMILY, 10, "bold"),
         ).pack(side="left")
         tk.Label(content, text="Model downloads only on first use — inference stays on this machine", bg=theme.SURFACE, fg=theme.TEXT_MUTED, font=(theme.FONT_FAMILY, 8)).pack(anchor="w", pady=(14, 0))
+
+    def _fit_window_to_content(self) -> None:
+        """Size the dashboard to its content instead of a hardcoded rect.
+
+        A fixed geometry breaks as soon as fonts/DPI change: once the
+        process correctly declares per-monitor DPI awareness, Tk renders at
+        true size and 520px no longer fits the Save button. Fitting to the
+        requested size keeps every control visible on any scale factor,
+        clamped to the screen so small displays stay usable.
+        """
+        try:
+            self.root.update_idletasks()
+            width = min(max(self.root.winfo_reqwidth(), 500), self.root.winfo_screenwidth())
+            height = min(max(self.root.winfo_reqheight(), 460), int(self.root.winfo_screenheight() * 0.92))
+            self.root.geometry(f"{width}x{height}")
+        except tk.TclError:
+            self.root.geometry("560x600")
 
     @staticmethod
     def _divider(parent: tk.Widget, *, pady) -> tk.Frame:
