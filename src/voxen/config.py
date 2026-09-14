@@ -11,6 +11,8 @@ from pathlib import Path
 CONFIG_VERSION = 1
 SUPPORTED_MODELS = ("tiny", "base", "small")
 SUPPORTED_LANGUAGES = ("auto", "it", "en", "ja", "fr", "de", "es")
+SUPPORTED_PASTE_MODES = ("auto", "review", "smart")
+DEFAULT_SMART_REVIEW_CHARS = 80
 
 # One predicate per field with a business rule beyond "matches the default's
 # type". Adding a new constrained field means adding one entry here, not
@@ -37,6 +39,8 @@ _FIELD_VALIDATORS: dict[str, Callable[[object], bool]] = {
     "device": lambda value: value in _ALLOWED_DEVICES,
     "compute_type": lambda value: value in _ALLOWED_COMPUTE_TYPES,
     "sample_rate": lambda value: isinstance(value, int) and not isinstance(value, bool) and value > 0,
+    "paste_mode": lambda value: value in SUPPORTED_PASTE_MODES,
+    "history_limit": lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 < value <= 2000,
 }
 
 
@@ -50,6 +54,10 @@ class AppConfig:
     sample_rate: int = 16_000
     auto_paste: bool = True
     punctuation: bool = True
+    # auto: paste immediately (legacy behaviour). review: always hold the
+    # transcript in REVIEWING until confirmed. smart: review only long drafts.
+    paste_mode: str = "auto"
+    history_limit: int = 200
 
 
 class ConfigStore:

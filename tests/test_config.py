@@ -106,6 +106,27 @@ def test_config_ignores_invalid_hotkey_device_and_compute_type(tmp_path) -> None
     assert config.compute_type == defaults.compute_type
 
 
+def test_config_round_trip_with_paste_mode_and_history_limit(tmp_path) -> None:
+    path = tmp_path / "config.json"
+    store = ConfigStore(path)
+    config = AppConfig(paste_mode="review", history_limit=50)
+
+    store.save(config)
+
+    assert store.load() == config
+
+
+def test_config_rejects_invalid_paste_mode_and_history_limit(tmp_path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"paste_mode": "carrier-pigeon", "history_limit": 0}), encoding="utf-8")
+
+    config = ConfigStore(path).load()
+    defaults = AppConfig()
+
+    assert config.paste_mode == defaults.paste_mode
+    assert config.history_limit == defaults.history_limit
+
+
 def test_config_uses_application_support_on_macos(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(config_module.sys, "platform", "darwin")
     monkeypatch.setattr(Path, "home", lambda: tmp_path)

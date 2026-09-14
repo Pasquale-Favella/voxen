@@ -6,6 +6,7 @@ class AppState(Enum):
     READY = auto()
     RECORDING = auto()
     PROCESSING = auto()
+    REVIEWING = auto()
     PAUSED = auto()
     ERROR = auto()
     CLOSING = auto()
@@ -20,7 +21,8 @@ class AppStateMachine:
         AppState.STARTING: {AppState.READY, AppState.ERROR, AppState.CLOSING},
         AppState.READY: {AppState.RECORDING, AppState.PAUSED, AppState.ERROR, AppState.CLOSING},
         AppState.RECORDING: {AppState.PROCESSING, AppState.ERROR, AppState.CLOSING},
-        AppState.PROCESSING: {AppState.READY, AppState.ERROR, AppState.CLOSING},
+        AppState.PROCESSING: {AppState.READY, AppState.REVIEWING, AppState.ERROR, AppState.CLOSING},
+        AppState.REVIEWING: {AppState.READY, AppState.ERROR, AppState.CLOSING},
         AppState.PAUSED: {AppState.READY, AppState.ERROR, AppState.CLOSING},
         AppState.ERROR: {AppState.STARTING, AppState.READY, AppState.CLOSING},
         AppState.CLOSING: set(),

@@ -10,15 +10,17 @@ from tkinter import ttk
 from .application import events as ev
 from .application.dictation import DictationService
 from .audio import AudioRecorder
-from .config import SUPPORTED_LANGUAGES, SUPPORTED_MODELS, ConfigStore
+from .config import SUPPORTED_LANGUAGES, SUPPORTED_MODELS, SUPPORTED_PASTE_MODES, ConfigStore
 from .domain.state import AppState
 from .domain.text import TextProcessor
 from .hotkey import GlobalHotkey
+from .infrastructure.history_store import SqliteHistoryStore
 from .infrastructure.resources import asset_path
 from .injector import ClipboardInjector
 from .presentation import theme
 from .presentation.hotkey_capture import HotkeyCapture
 from .presentation.overlay import RecordingOverlay
+from .presentation.review import ReviewWindow
 from .presentation.shapes import Checkbox, RoundedButton
 from .stt import ModelManager
 from .tray import SystemTray
@@ -38,6 +40,11 @@ class VoxenApp:
 
         self.store = ConfigStore()
         self.config = self.store.load()
+        try:
+            history = SqliteHistoryStore()
+        except Exception:
+            logger.warning("History store unavailable; continuing without persistence.", exc_info=True)
+            history = None
         self.dictation = DictationService(
             audio=AudioRecorder(self.config.sample_rate),
             transcriber=ModelManager(),
@@ -45,6 +52,7 @@ class VoxenApp:
             injector=ClipboardInjector(),
             executor=ThreadPoolExecutor(max_workers=1, thread_name_prefix="voxen-stt"),
             config=self.config,
+            history=history,
         )
         self.audio_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voxen-audio")
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
@@ -57,17 +65,31 @@ class VoxenApp:
         self.hotkey_var = tk.StringVar(value=self.config.hotkey)
         self.model_var = tk.StringVar(value=self.config.model)
         self.language_var = tk.StringVar(value=self.config.language)
+        self.paste_mode_var = tk.StringVar(value=getattr(self.config, "paste_mode", "auto"))
         self.auto_paste_var = tk.BooleanVar(value=self.config.auto_paste)
         self.punctuation_var = tk.BooleanVar(value=self.config.punctuation)
         self.hotkey_button_var = tk.StringVar(value=HotkeyCapture.display_text(self.config.hotkey))
         self.hotkey_hint_var = tk.StringVar(value="Click the button, then press your key combination")
         self.model_combo: ttk.Combobox | None = None
         self.language_combo: ttk.Combobox | None = None
+        self.paste_mode_combo: ttk.Combobox | None = None
+        self.history_list: tk.Listbox | None = None
+        self.review_window: ReviewWindow | None = None
+        self._history_cache: list = []
         self.started_at = 0.0
 
         self._build_ui()
         self._fit_window_to_content()
         self.overlay = RecordingOverlay(self.root, level_provider=lambda: self.dictation.audio_level)
+        try:
+            self.review_window = ReviewWindow(
+                self.root,
+                on_confirm=self._confirm_review,
+                on_discard=self._discard_review,
+            )
+        except Exception:
+            logger.warning("Review window unavailable; drafts will auto-confirm.", exc_info=True)
+            self.review_window = None
         self.root.withdraw()
         self._start_services()
         self.root.after(EVENT_POLL_MS, self._drain_events)
@@ -179,6 +201,69 @@ class VoxenApp:
                 parent_bg=theme.SURFACE,
             ).pack(side="left", padx=(0, 24))
 
+        review_row = tk.Frame(controls, bg=theme.SURFACE)
+        review_row.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        review_row.columnconfigure(1, weight=1)
+        tk.Label(review_row, text="Review", bg=theme.SURFACE, fg=theme.LABEL_MUTED, font=(theme.FONT_FAMILY, 9)).grid(row=0, column=0, sticky="w", padx=(0, 10))
+        self.paste_mode_combo = ttk.Combobox(
+            review_row,
+            textvariable=self.paste_mode_var,
+            values=SUPPORTED_PASTE_MODES,
+            state="readonly",
+            takefocus=True,
+            style="Voxen.TCombobox",
+        )
+        self.paste_mode_combo.bind("<<ComboboxSelected>>", self._on_combo_selected)
+        self.paste_mode_combo.grid(row=0, column=1, sticky="ew")
+        tk.Label(
+            review_row,
+            text="auto: paste · review: confirm · smart: confirm long",
+            bg=theme.SURFACE,
+            fg=theme.HINT_MUTED,
+            font=(theme.FONT_FAMILY, 8),
+        ).grid(row=1, column=1, sticky="w", pady=(4, 0))
+
+        self._divider(content, pady=(22, 18))
+
+        history_block = tk.Frame(content, bg=theme.SURFACE)
+        history_block.pack(fill="both", expand=True)
+        history_head = tk.Frame(history_block, bg=theme.SURFACE)
+        history_head.pack(fill="x")
+        tk.Label(history_head, text="HISTORY", bg=theme.SURFACE, fg=theme.TEXT_MUTED, font=(theme.FONT_FAMILY, 8, "bold")).pack(side="left")
+        tk.Button(
+            history_head,
+            text="Refresh",
+            command=self._refresh_history,
+            bg=theme.BUTTON_BG,
+            fg=theme.BUTTON_FG,
+            activebackground=theme.BUTTON_ACTIVE_BG,
+            relief="flat",
+            font=(theme.FONT_FAMILY, 8),
+        ).pack(side="right", padx=(6, 0))
+        tk.Button(
+            history_head,
+            text="Re-paste",
+            command=self._repaste_selected,
+            bg=theme.BUTTON_BG,
+            fg=theme.BUTTON_FG,
+            activebackground=theme.BUTTON_ACTIVE_BG,
+            relief="flat",
+            font=(theme.FONT_FAMILY, 8),
+        ).pack(side="right")
+        self.history_list = tk.Listbox(
+            history_block,
+            height=5,
+            bg=theme.COMBO_FIELD_BG,
+            fg=theme.TEXT_PRIMARY,
+            selectbackground=theme.ACCENT,
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=theme.COMBO_BORDER,
+            font=(theme.FONT_FAMILY, 9),
+        )
+        self.history_list.pack(fill="both", expand=True, pady=(10, 0))
+        self.history_list.bind("<Double-Button-1>", lambda _e: self._repaste_selected())
+
         self._divider(content, pady=(22, 18))
 
         actions = tk.Frame(content, bg=theme.SURFACE)
@@ -279,6 +364,10 @@ class VoxenApp:
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
+        try:
+            self._refresh_history()
+        except Exception:
+            pass
 
     def _hide_settings(self) -> None:
         if self.hotkey_capture is not None and self.hotkey_capture.capturing:
@@ -397,23 +486,129 @@ class VoxenApp:
         self.status_var.set("Ready")
         self.detail_var.set("No speech detected.")
 
+    def _hide_review(self) -> None:
+        review = getattr(self, "review_window", None)
+        if review is not None:
+            try:
+                review.hide()
+            except Exception:
+                pass
+
     def _on_transcript_pasted(self, _event: ev.TranscriptPasted) -> None:
         self.overlay.hide()
+        self._hide_review()
         self.status_var.set("Ready")
         self.detail_var.set("Text pasted into the active application.")
+        self._refresh_history()
 
     def _on_transcript_ready(self, _event: ev.TranscriptReady) -> None:
         self.overlay.hide()
+        self._hide_review()
         self.status_var.set("Ready")
         self.detail_var.set("Transcript ready. Automatic paste is disabled.")
+        self._refresh_history()
+
+    def _on_transcript_draft(self, event: ev.TranscriptDraft) -> None:
+        self.overlay.hide()
+        self.status_var.set("Review")
+        self.detail_var.set("Edit the draft, then paste or discard.")
+        review = getattr(self, "review_window", None)
+        if review is None:
+            # Headless/fallback: confirm immediately so dictation never stalls.
+            try:
+                self.dictation.confirm_draft(event.text)
+            except Exception:
+                logger.exception("Auto-confirm of review draft failed")
+            return
+        try:
+            review.show(event.text)
+        except Exception:
+            logger.exception("Review window failed to show; auto-confirming")
+            try:
+                self.dictation.confirm_draft(event.text)
+            except Exception:
+                pass
+
+    def _on_draft_discarded(self, _event: ev.DraftDiscarded) -> None:
+        self.overlay.hide()
+        self._hide_review()
+        self.status_var.set("Ready")
+        self.detail_var.set("Draft discarded.")
+
+    def _confirm_review(self, edited_text: str) -> None:
+        try:
+            if not self.dictation.confirm_draft(edited_text):
+                self.detail_var.set("Nothing to confirm.")
+                return
+        except Exception as exc:
+            self.detail_var.set(str(exc))
+            return
+        # The resulting TranscriptPasted/Ready event renders the final state;
+        # hide eagerly so the pill never lingers a frame.
+        self._hide_review()
+
+    def _discard_review(self) -> None:
+        try:
+            if not self.dictation.discard_draft():
+                self._hide_review()
+        except Exception as exc:
+            self.detail_var.set(str(exc))
+
+    def _refresh_history(self) -> None:
+        listbox = getattr(self, "history_list", None)
+        if listbox is None:
+            return
+        try:
+            records = self.dictation.recent_history(30)
+        except Exception:
+            return
+        self._history_cache = records
+        try:
+            listbox.delete(0, "end")
+            for record in records:
+                preview = record.text.replace("\n", " ")
+                if len(preview) > 90:
+                    preview = preview[:87] + "..."
+                listbox.insert("end", preview)
+        except Exception:
+            pass
+
+    def _repaste_selected(self) -> None:
+        listbox = getattr(self, "history_list", None)
+        if listbox is None:
+            return
+        try:
+            selection = listbox.curselection()
+        except Exception:
+            return
+        if not selection:
+            self.detail_var.set("Select a history entry to re-paste.")
+            return
+        cache = getattr(self, "_history_cache", [])
+        index = int(selection[0])
+        if index < 0 or index >= len(cache):
+            return
+        text = cache[index].text
+        try:
+            if not self.dictation.repaste(text):
+                self.detail_var.set("Finish the current review before re-pasting.")
+        except Exception as exc:
+            self.detail_var.set(str(exc))
 
     def _on_paste_failed(self, event: ev.PasteFailed) -> None:
         self.overlay.hide()
+        self._hide_review()
         self.status_var.set("Ready")
-        self.detail_var.set(event.message)
+        # The transcript is preserved: on the event (text) and in history.
+        if getattr(event, "text", ""):
+            self.detail_var.set(f"{event.message} Text kept in History — re-paste from the dashboard.")
+        else:
+            self.detail_var.set(event.message)
+        self._refresh_history()
 
     def _on_transcription_failed(self, event: ev.TranscriptionFailed) -> None:
         self.overlay.hide()
+        self._hide_review()
         self.status_var.set("Error")
         self.detail_var.set(f"{event.message} Click Save settings to retry.")
 
@@ -442,6 +637,11 @@ class VoxenApp:
         self.config.hotkey = self.hotkey_var.get().strip() or "ctrl+space"
         self.config.model = self.model_var.get()
         self.config.language = self.language_var.get()
+        paste_mode = self.paste_mode_var.get().strip() if hasattr(self, "paste_mode_var") else "auto"
+        if paste_mode not in SUPPORTED_PASTE_MODES:
+            self.detail_var.set(f"Invalid review mode: {paste_mode}")
+            return
+        self.config.paste_mode = paste_mode
         self.config.auto_paste = self.auto_paste_var.get()
         self.config.punctuation = self.punctuation_var.get()
         try:
@@ -464,6 +664,12 @@ class VoxenApp:
     def close(self) -> None:
         if self.state is AppState.CLOSING:
             return
+        try:
+            review = getattr(self, "review_window", None)
+            if review is not None:
+                review.hide()
+        except Exception:
+            pass
         try:
             if self.hotkey is not None:
                 self.hotkey.stop()
@@ -495,6 +701,8 @@ _EVENT_HANDLERS = {
     ev.AudioFailed: VoxenApp._on_audio_failed,
     ev.AudioDropout: VoxenApp._on_audio_dropout,
     ev.NoSpeechDetected: VoxenApp._on_no_speech_detected,
+    ev.TranscriptDraft: VoxenApp._on_transcript_draft,
+    ev.DraftDiscarded: VoxenApp._on_draft_discarded,
     ev.TranscriptPasted: VoxenApp._on_transcript_pasted,
     ev.TranscriptReady: VoxenApp._on_transcript_ready,
     ev.PasteFailed: VoxenApp._on_paste_failed,

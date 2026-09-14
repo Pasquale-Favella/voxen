@@ -53,6 +53,23 @@ class TranscriptPasted:
 
 
 @dataclass(frozen=True)
+class TranscriptDraft:
+    """A transcript waiting for user review before paste.
+
+    Emitted instead of ``TranscriptPasted`` when ``paste_mode`` requires
+    confirmation. The service holds the draft and enters REVIEWING until
+    the presentation layer calls ``confirm_draft`` or ``discard_draft``.
+    """
+
+    text: str
+
+
+@dataclass(frozen=True)
+class DraftDiscarded:
+    """The user discarded the draft under review."""
+
+
+@dataclass(frozen=True)
 class TranscriptReady:
     """A transcript is available but automatic paste is disabled."""
 
@@ -62,6 +79,10 @@ class TranscriptReady:
 @dataclass(frozen=True)
 class PasteFailed:
     message: str
+    # The transcript that could not be pasted. Empty when unknown so older
+    # callers constructing PasteFailed(message) keep working; new code
+    # passes text so the UI can offer "copy instead" / retry from history.
+    text: str = ""
 
 
 @dataclass(frozen=True)
@@ -81,6 +102,8 @@ DictationEvent = (
     | AudioFailed
     | AudioDropout
     | NoSpeechDetected
+    | TranscriptDraft
+    | DraftDiscarded
     | TranscriptPasted
     | TranscriptReady
     | PasteFailed

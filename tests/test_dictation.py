@@ -221,7 +221,8 @@ def test_paste_failure_is_reported_but_still_returns_to_ready() -> None:
     executor.run_next()
     events = service.drain_events()
 
-    assert events == [ev.PasteFailed("clipboard busy")]
+    # The text travels with the failure so the UI can recover from History.
+    assert events == [ev.PasteFailed("clipboard busy", "ciao")]
     assert service.state is AppState.READY
 
 

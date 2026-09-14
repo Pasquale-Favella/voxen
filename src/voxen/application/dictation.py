@@ -18,7 +18,8 @@ import queue
 from collections.abc import Callable
 from threading import Lock
 
-from ..config import AppConfig
+from ..config import DEFAULT_SMART_REVIEW_CHARS, AppConfig
+from ..domain.history import NullHistoryStore
 from ..domain.state import AppState, AppStateMachine
 from ..domain.text import ProcessingOptions
 from ..stt import ModelConfig
@@ -26,6 +27,11 @@ from . import events as ev
 from .ports import AudioSource, TextInjector, TextNormalizer, Transcriber
 
 logger = logging.getLogger(__name__)
+
+# Long drafts are where silent mis-transcriptions hurt most: reviewing a
+# short "ok." costs more than retyping it, reviewing a paragraph saves a
+# manual proofread pass inside the target app.
+_SMART_REVIEW_CHARS = DEFAULT_SMART_REVIEW_CHARS
 
 
 class DictationService:
@@ -38,6 +44,7 @@ class DictationService:
         injector: TextInjector,
         executor,
         config: AppConfig,
+        history=None,
     ) -> None:
         self._audio = audio
         self._transcriber = transcriber
@@ -45,11 +52,13 @@ class DictationService:
         self._injector = injector
         self._executor = executor
         self._config = config
+        self._history = history if history is not None else NullHistoryStore()
         self._state_machine = AppStateMachine()
         self._events: queue.Queue[ev.DictationEvent] = queue.Queue()
         self._pending_futures: set = set()
         self._future_lock = Lock()
         self._unload_started = False
+        self._draft: str | None = None
 
     @property
     def state(self) -> AppState:
@@ -63,8 +72,34 @@ class DictationService:
     def audio_status(self) -> str | None:
         return self._audio.last_status
 
+    @property
+    def draft(self) -> str | None:
+        """The transcript currently held in REVIEWING, if any."""
+        return self._draft
+
     def _model_config(self) -> ModelConfig:
         return ModelConfig(self._config.model, self._config.device, self._config.compute_type)
+
+    def _needs_review(self, text: str) -> bool:
+        mode = getattr(self._config, "paste_mode", "auto")
+        if mode == "review":
+            return True
+        if mode == "smart":
+            return len(text) >= _SMART_REVIEW_CHARS
+        return False
+
+    def _remember(self, text: str) -> None:
+        """Best-effort history save: dictation must never fail for history."""
+        try:
+            self._history.save(text, language=self._config.language, model=self._config.model)
+            prune = getattr(self._history, "prune", None)
+            if prune is not None:
+                try:
+                    prune(getattr(self._config, "history_limit", 200))
+                except Exception:
+                    logger.debug("History prune failed", exc_info=True)
+        except Exception:
+            logger.debug("History save failed", exc_info=True)
 
     # -- lifecycle -----------------------------------------------------
 
@@ -76,6 +111,7 @@ class DictationService:
             return
         if self.state is AppState.RECORDING:
             self._run_step("end the active recording", self._audio.end)
+        self._draft = None
         self._state_machine.transition(AppState.CLOSING)
         for description, step in (
             ("cancel the transcriber", self._transcriber.cancel),
@@ -194,14 +230,86 @@ class DictationService:
         if not text:
             self._events.put(ev.NoSpeechDetected())
             return
+        self._remember(text)
         if not self._config.auto_paste:
-            self._events.put(ev.TranscriptReady(text))
+            if self._needs_review(text):
+                self._draft = text
+                self._events.put(ev.TranscriptDraft(text))
+            else:
+                self._events.put(ev.TranscriptReady(text))
+            return
+        if self._needs_review(text):
+            self._draft = text
+            self._events.put(ev.TranscriptDraft(text))
             return
         try:
             self._injector.inject(text)
             self._events.put(ev.TranscriptPasted(text))
         except Exception as exc:
-            self._events.put(ev.PasteFailed(str(exc)))
+            self._events.put(ev.PasteFailed(str(exc), text))
+
+    # -- review ----------------------------------------------------------
+    # Called from the UI thread that owns clipboard/paste side effects.
+
+    def confirm_draft(self, edited_text: str | None = None) -> bool:
+        """Paste the draft under review (optionally edited)."""
+        if self.state is not AppState.REVIEWING or self._draft is None:
+            return False
+        text = self._draft if edited_text is None else edited_text.strip()
+        if not text:
+            self._draft = None
+            self._events.put(ev.DraftDiscarded())
+            return True
+        if not self._config.auto_paste:
+            # Review with auto-paste off means "copy-ready": keep it in
+            # history (already saved) and hand it to the UI without
+            # touching the clipboard.
+            self._draft = None
+            self._events.put(ev.TranscriptReady(text))
+            return True
+        try:
+            self._injector.inject(text)
+            self._draft = None
+            self._events.put(ev.TranscriptPasted(text))
+            return True
+        except Exception as exc:
+            self._draft = None
+            self._events.put(ev.PasteFailed(str(exc), text))
+            return True
+
+    def discard_draft(self) -> bool:
+        if self.state is not AppState.REVIEWING or self._draft is None:
+            return False
+        self._draft = None
+        self._events.put(ev.DraftDiscarded())
+        return True
+
+    def repaste(self, text: str) -> bool:
+        """Re-inject a past transcript from history. READY only."""
+        cleaned = text.strip()
+        if self.state is not AppState.READY or not cleaned:
+            return False
+        try:
+            self._injector.inject(cleaned)
+            self._events.put(ev.TranscriptPasted(cleaned))
+            return True
+        except Exception as exc:
+            self._events.put(ev.PasteFailed(str(exc), cleaned))
+            return True
+
+    def recent_history(self, limit: int = 20) -> list:
+        try:
+            return self._history.recent(limit)
+        except Exception:
+            logger.debug("History recent() failed", exc_info=True)
+            return []
+
+    def search_history(self, query: str, limit: int = 20) -> list:
+        try:
+            return self._history.search(query, limit)
+        except Exception:
+            logger.debug("History search() failed", exc_info=True)
+            return []
 
     # -- event draining (call from the thread that owns paste side effects) --
 
@@ -225,9 +333,18 @@ class DictationService:
             elif isinstance(event, ev.EngineFailed):
                 self._state_machine.transition(AppState.ERROR)
             elif isinstance(event, ev.TranscriptionFailed):
-                self._state_machine.transition(AppState.ERROR)
-            elif isinstance(event, (ev.NoSpeechDetected, ev.TranscriptPasted, ev.TranscriptReady, ev.PasteFailed)):
+                if self.state in (AppState.PROCESSING, AppState.REVIEWING):
+                    self._draft = None
+                    self._state_machine.transition(AppState.ERROR)
+                elif self.state not in (AppState.ERROR, AppState.CLOSING):
+                    self._state_machine.transition(AppState.ERROR)
+            elif isinstance(event, ev.TranscriptDraft):
                 if self.state is AppState.PROCESSING:
+                    self._state_machine.transition(AppState.REVIEWING)
+            elif isinstance(event, (ev.NoSpeechDetected, ev.TranscriptPasted, ev.TranscriptReady, ev.PasteFailed, ev.DraftDiscarded)):
+                if self.state in (AppState.PROCESSING, AppState.REVIEWING):
+                    # PasteFailed carries its text on the event; no draft is kept.
+                    self._draft = None
                     self._state_machine.transition(AppState.READY)
         except Exception as exc:
             logger.exception("Failed to apply dictation event %r", event)

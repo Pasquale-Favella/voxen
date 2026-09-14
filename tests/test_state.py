@@ -9,6 +9,7 @@ def test_app_state_contains_the_application_lifecycle() -> None:
         "READY",
         "RECORDING",
         "PROCESSING",
+        "REVIEWING",
         "PAUSED",
         "ERROR",
         "CLOSING",
@@ -21,6 +22,18 @@ def test_state_machine_allows_the_recording_lifecycle() -> None:
     machine.transition(AppState.READY)
     machine.transition(AppState.RECORDING)
     machine.transition(AppState.PROCESSING)
+    machine.transition(AppState.READY)
+
+    assert machine.current is AppState.READY
+
+
+def test_state_machine_allows_the_review_lifecycle() -> None:
+    machine = AppStateMachine()
+
+    machine.transition(AppState.READY)
+    machine.transition(AppState.RECORDING)
+    machine.transition(AppState.PROCESSING)
+    machine.transition(AppState.REVIEWING)
     machine.transition(AppState.READY)
 
     assert machine.current is AppState.READY
