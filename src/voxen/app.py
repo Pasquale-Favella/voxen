@@ -20,7 +20,7 @@ from .presentation import theme
 from .presentation.hotkey_capture import HotkeyCapture
 from .presentation.overlay import RecordingOverlay
 from .presentation.shapes import Checkbox, RoundedButton
-from .stt import ModelManager
+from .stt import ModelManager, is_parakeet_model
 from .tray import SystemTray
 
 EVENT_POLL_MS = 25
@@ -66,6 +66,8 @@ class VoxenApp:
         self.started_at = 0.0
 
         self._build_ui()
+        self.model_var.trace_add("write", self._update_language_control)
+        self._update_language_control()
         self._fit_window_to_content()
         self.overlay = RecordingOverlay(self.root, level_provider=lambda: self.dictation.audio_level)
         self.root.withdraw()
@@ -76,6 +78,13 @@ class VoxenApp:
     @property
     def state(self) -> AppState:
         return self.dictation.state
+
+    def _update_language_control(self, *_args) -> None:
+        if self.language_combo is not None:
+            automatic = is_parakeet_model(self.model_var.get())
+            self.language_combo.configure(state="disabled" if automatic else "readonly")
+            if automatic:
+                self.language_var.set("auto")
 
     def _build_ui(self) -> None:
         self.combo_popup_font = theme.apply(self.root)
@@ -320,7 +329,7 @@ class VoxenApp:
 
     def _show_recording_stopped(self) -> None:
         self.status_var.set("Processing...")
-        self.detail_var.set("Whisper is transcribing locally.")
+        self.detail_var.set("Transcribing locally...")
         self.overlay.show("processing")
 
     def _update_overlay_clock(self) -> None:
