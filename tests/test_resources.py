@@ -47,3 +47,20 @@ def test_brand_assets_are_transparent_and_theme_adaptive() -> None:
     with Image.open(resources.asset_path("voxen.ico")) as icon:
         assert (16, 16) in icon.ico.sizes()
         assert (256, 256) in icon.ico.sizes()
+
+
+
+def test_readme_vector_marks_share_the_same_continuous_silhouette() -> None:
+    from xml.etree import ElementTree as ET
+
+    namespace = {"svg": "http://www.w3.org/2000/svg"}
+    light = ET.parse(resources.asset_path("voxen-mark.svg")).getroot()
+    dark = ET.parse(resources.asset_path("voxen-mark-dark.svg")).getroot()
+    light_paths = light.findall(".//svg:path", namespace)
+    dark_paths = dark.findall(".//svg:path", namespace)
+    assert len(light_paths) == len(dark_paths) == 1
+    assert light_paths[0].attrib["d"] == dark_paths[0].attrib["d"]
+    assert light_paths[0].attrib["fill"] == "#18181b"
+    assert dark_paths[0].attrib["fill"] == "#f1f1f3"
+    assert not light.findall(".//svg:rect", namespace)
+    assert not dark.findall(".//svg:rect", namespace)
