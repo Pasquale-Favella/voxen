@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-import inspect
+import hashlib
 import logging
 import os
 import shutil
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Event, RLock
 from typing import Protocol
+from urllib.request import urlopen
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +21,17 @@ PARAKEET_ASR_NAME = "nemo-parakeet-tdt-0.6b-v3"
 PARAKEET_REVISION = "8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce"
 PARAKEET_VAD_NAME = "silero"
 PARAKEET_VAD_REVISION = "b3e3ee3cce4c11ceb63b1a0b229d916069c1ddf6"
-PARAKEET_MODEL_FILES = ("config.json", "vocab.txt", "encoder-model.int8.onnx", "decoder_joint-model.int8.onnx")
-PARAKEET_VAD_FILES = ("config.json", "silero_vad.onnx")
+# SHA-256 of the pinned upstream ONNX export (not the original NeMo weights).
+PARAKEET_MANIFEST = {
+    "config.json": "666903c76b9798caf2c210afd4f6cd60b08a8dbf9800ec8d7a3bc0d2148ac466",
+    "vocab.txt": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d",
+    "encoder-model.int8.onnx": "6139d2fa7e1b086097b277c7149725edbab89cc7c7ae64b23c741be4055aff09",
+    "decoder_joint-model.int8.onnx": "eea7483ee3d1a30375daedc8ed83e3960c91b098812127a0d99d1c8977667a70",
+    "nemo128.onnx": "a9fde1486ebfcc08f328d75ad4610c67835fea58c73ba57e3209a6f6cf019e9f",
+}
+PARAKEET_VAD_MANIFEST = {
+    "silero_vad.onnx": "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3",
+}
 PARAKEET_CHUNK_SECONDS = 20
 PARAKEET_MODELS = frozenset({PARAKEET_MODEL})
 
@@ -65,14 +76,36 @@ def models_root() -> Path:
     return base / "models"
 
 
-def _validate_files(directory: Path, names: tuple[str, ...]) -> bool:
-    return all((directory / name).is_file() and (directory / name).stat().st_size > 0 for name in names)
+def _matches_hash(path: Path, expected: str) -> bool:
+    try:
+        with path.open("rb") as handle:
+            return hashlib.file_digest(handle, "sha256").hexdigest() == expected
+    except FileNotFoundError:
+        return False
 
 
-def _prepare_directory(directory: Path, names: tuple[str, ...]) -> None:
-    """Remove an incomplete download so onnx-asr can fetch a clean snapshot."""
-    if directory.exists() and not _validate_files(directory, names):
-        shutil.rmtree(directory, ignore_errors=True)
+def _ensure_files(directory: Path, repository: str, revision: str, manifest: dict[str, str], *, offline: bool = False) -> None:
+    """Validate cached files and atomically replace only missing or corrupt files."""
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, expected in manifest.items():
+        destination = directory / name
+        if _matches_hash(destination, expected):
+            continue
+        if offline:
+            raise RuntimeError(f"Missing or corrupt cached model file: {destination}")
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=directory, prefix=f".{name}.", suffix=".part", delete=False) as handle:
+                temporary = Path(handle.name)
+                url = f"https://huggingface.co/{repository}/resolve/{revision}/{name}"
+                with urlopen(url, timeout=60) as response:
+                    shutil.copyfileobj(response, handle, length=1024 * 1024)
+            if not _matches_hash(temporary, expected):
+                raise RuntimeError(f"SHA-256 mismatch for {name}")
+            os.replace(temporary, destination)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
 
 def _chunks(samples, size: int) -> Iterator[object]:
@@ -157,6 +190,7 @@ class ParakeetEngine:
         cache_root: Path | None = None,
         use_vad: bool = True,
         sample_rate: int = 16_000,
+        offline: bool = False,
     ) -> None:
         self.model_name = model
         self.device = device
@@ -166,47 +200,39 @@ class ParakeetEngine:
         self.vad_dir = self.cache_root / "silero-vad"
         self.use_vad = use_vad
         self.sample_rate = sample_rate
+        self.offline = offline
+        self.resolved_device = None
         self._model = None
         self._vad_enabled = False
 
-    @staticmethod
-    def _providers(device: str) -> list[str]:
-        if device == "cuda":
-            return ["CUDAExecutionProvider", "CPUExecutionProvider"]
-        return ["CPUExecutionProvider"]
-
     def load(self) -> None:
         try:
-            import onnx_asr
+            from onnx_asr.loader import Manager
         except ImportError as exc:
             raise RuntimeError(
                 "Parakeet requires onnx-asr. Install it with: pip install -e '.[parakeet]'"
             ) from exc
 
-        providers = self._providers(self.device)
-        _prepare_directory(self.model_dir, PARAKEET_MODEL_FILES)
-        # `revision` was added after onnx-asr 0.12.0; pin the weights when the
-        # installed version supports it and rely on file validation otherwise.
-        load_kwargs = {"path": self.model_dir, "quantization": "int8", "providers": providers}
-        if "revision" in inspect.signature(onnx_asr.load_model).parameters:
-            load_kwargs["revision"] = PARAKEET_REVISION
-        model = onnx_asr.load_model(PARAKEET_ASR_NAME, **load_kwargs)
-        if not _validate_files(self.model_dir, PARAKEET_MODEL_FILES):
-            raise RuntimeError("Parakeet model download is incomplete. Delete the model cache and try again.")
+        # The distributed extra contains CPU ONNX Runtime. Do not advertise
+        # CUDA acceleration until a GPU build and its native dependencies exist.
+        if self.device == "cuda":
+            logger.warning("Parakeet uses CPU in this build; CUDA is not bundled.")
+        providers = ["CPUExecutionProvider"]
+        _ensure_files(self.model_dir, "istupakov/parakeet-tdt-0.6b-v3-onnx", PARAKEET_REVISION, PARAKEET_MANIFEST, offline=self.offline)
+        manager = Manager(providers=providers)
+        model = manager.create_asr(PARAKEET_ASR_NAME, self.model_dir, quantization="int8", offline=True)
 
         self._vad_enabled = False
         if self.use_vad:
             try:
-                _prepare_directory(self.vad_dir, PARAKEET_VAD_FILES)
-                vad_kwargs = {"path": self.vad_dir, "providers": providers}
-                if "revision" in inspect.signature(onnx_asr.load_vad).parameters:
-                    vad_kwargs["revision"] = PARAKEET_VAD_REVISION
-                vad = onnx_asr.load_vad(PARAKEET_VAD_NAME, **vad_kwargs)
+                _ensure_files(self.vad_dir, "istupakov/silero-vad-onnx", PARAKEET_VAD_REVISION, PARAKEET_VAD_MANIFEST, offline=self.offline)
+                vad = manager.create_vad(PARAKEET_VAD_NAME, self.vad_dir, offline=True)
                 model = model.with_vad(vad, max_speech_duration_s=PARAKEET_CHUNK_SECONDS)
                 self._vad_enabled = True
             except Exception as exc:
                 logger.warning("Parakeet VAD unavailable, using fixed segmentation: %s", exc)
         self._model = model
+        self.resolved_device = "cpu"
 
     def transcribe(self, audio: object, language: str = "auto", should_cancel: Callable[[], bool] | None = None) -> str:
         if self._model is None:
@@ -240,12 +266,14 @@ class ParakeetEngine:
     def unload(self) -> None:
         self._model = None
         self._vad_enabled = False
+        self.resolved_device = None
 
     @classmethod
     def delete_cache(cls, cache_root: Path | None = None) -> None:
         root = Path(cache_root) if cache_root is not None else models_root()
         for directory in (root / PARAKEET_MODEL, root / "silero-vad"):
-            shutil.rmtree(directory, ignore_errors=True)
+            if directory.exists():
+                shutil.rmtree(directory)
 
 
 class ModelManager:
@@ -266,6 +294,7 @@ class ModelManager:
         self._engine: SpeechToTextEngine | None = None
         self._config: ModelConfig | None = None
         self._lock = RLock()
+        self._inference_lock = RLock()
 
     def cancel(self) -> None:
         self._cancelled.set()
@@ -292,7 +321,7 @@ class ModelManager:
         raise RuntimeError(f"Could not load the model: {last_error}") from last_error
 
     def get_engine(self, config: ModelConfig) -> SpeechToTextEngine:
-        with self._lock:
+        with self._inference_lock, self._lock:
             if self._cancelled.is_set():
                 raise RuntimeError("Model loading cancelled.")
             if self._engine is not None and self._config == config:
@@ -320,18 +349,14 @@ class ModelManager:
         self.get_engine(config)
 
     def transcribe(self, audio, config: ModelConfig, language: str = "auto") -> str:
-        # Snapshot the engine under lock, then transcribe without holding it:
-        # holding the lock across the blocking transcription call would
-        # serialize warm/transcribe and delay shutdown's unload. Shutdown
-        # already defers unload until pending futures finish, so the snapshot
-        # stays valid.
-        engine = self.get_engine(config)
-        cancelled = self._cancelled.is_set
-        return engine.transcribe(audio, language, should_cancel=cancelled)
+        # Prevent engine replacement or cache deletion during native inference.
+        with self._inference_lock:
+            engine = self.get_engine(config)
+            return engine.transcribe(audio, language, should_cancel=self._cancelled.is_set)
 
     def delete_model(self, model: str) -> None:
         """Unload an active engine and remove its cached weights on disk."""
-        with self._lock:
+        with self._inference_lock, self._lock:
             if self._config is not None and self._config.model == model:
                 if self._engine is not None:
                     self._engine.unload()
@@ -341,7 +366,7 @@ class ModelManager:
                 ParakeetEngine.delete_cache()
 
     def unload(self) -> None:
-        with self._lock:
+        with self._inference_lock, self._lock:
             if self._engine is not None:
                 self._engine.unload()
             self._engine = None
