@@ -210,7 +210,7 @@ class ParakeetEngine:
             from onnx_asr.loader import Manager
         except ImportError as exc:
             raise RuntimeError(
-                "Parakeet requires onnx-asr. Install it with: pip install -e '.[parakeet]'"
+                "Parakeet requires onnx-asr. Reinstall Voxen to restore its runtime."
             ) from exc
 
         # The distributed extra contains CPU ONNX Runtime. Do not advertise
