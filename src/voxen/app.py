@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import logging
 import queue
 import sys
@@ -7,6 +8,7 @@ import time
 import tkinter as tk
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from io import BytesIO
 from tkinter import ttk
 
 from .application import events as ev
@@ -196,14 +198,21 @@ class VoxenApp:
 
     def _update_brand_mark(self) -> None:
         """Use the same transparent monogram in both themes and native chrome."""
-        from PIL import Image, ImageTk
+        from PIL import Image
+
+        def photo(image: Image.Image) -> tk.PhotoImage:
+            # Tk supports PNG natively; avoid the optional Pillow/Tk C bridge
+            # and its runtime extension discovery inside frozen applications.
+            buffer = BytesIO()
+            image.save(buffer, format="PNG")
+            return tk.PhotoImage(master=self.root, data=base64.b64encode(buffer.getvalue()).decode("ascii"), format="png")
 
         asset = "voxen-mark-dark.png" if self.palette.name == "dark" else "voxen-mark.png"
         try:
             with Image.open(asset_path(asset)) as source:
                 mark = source.convert("RGBA")
             native = mark.resize((32, 32), Image.Resampling.LANCZOS)
-            self._window_icon = ImageTk.PhotoImage(native, master=self.root)
+            self._window_icon = photo(native)
             self.root.iconphoto(True, self._window_icon)
             # Trim transparent padding for the horizontal brand lockup, not
             # for the square native icon.
@@ -211,7 +220,7 @@ class VoxenApp:
             if bounds is not None:
                 mark = mark.crop(bounds)
             mark.thumbnail((54, 32), Image.Resampling.LANCZOS)
-            self._brand_photo = ImageTk.PhotoImage(mark, master=self.root)
+            self._brand_photo = photo(mark)
             self.brand_mark.configure(image=self._brand_photo)
         except (OSError, RuntimeError, tk.TclError) as exc:
             logger.warning("Could not load Voxen brand mark: %s", exc)
