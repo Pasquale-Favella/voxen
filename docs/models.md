@@ -12,8 +12,9 @@ The first model load may download weights. Parakeet files are pinned and validat
 | :--- | :--- |
 | Windows | `%LOCALAPPDATA%\Voxen\config.json` |
 | macOS | `~/Library/Application Support/Voxen/config.json` |
+| Linux | `$XDG_CONFIG_HOME/voxen/config.json` (default `~/.config/voxen/config.json`) |
 
-Parakeet uses a `models` subdirectory alongside the config. Whisper uses its upstream shared model cache. Developers can remove the Parakeet cache via `ModelManager.delete_model("parakeet-tdt-v3")`; do not delete model files manually while inference is active.
+On Windows/macOS, Parakeet uses a `models` subdirectory alongside the config. On Linux it uses `$XDG_DATA_HOME/voxen/models` (default `~/.local/share/voxen/models`); logs are under `$XDG_STATE_HOME/voxen/logs` (default `~/.local/state/voxen/logs`). Whisper uses its upstream shared model cache. Developers can remove the Parakeet cache via `ModelManager.delete_model("parakeet-tdt-v3")`; do not delete model files manually while inference is active.
 
 Parakeet's language detection is automatic across 25 supported European languages. Its compute type is fixed by the INT8 export. Whisper supports selected languages, including Japanese, as well as automatic detection.
 

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Voxen
+Comment=Local-first voice dictation
+Exec=voxen
+Icon=voxen
+Terminal=false
+Categories=Utility;Accessibility;
+StartupWMClass=Voxen

@@ -55,6 +55,9 @@ class FakeRoot:
     def withdraw(self) -> None:
         pass
 
+    def iconify(self) -> None:
+        pass
+
     def deiconify(self) -> None:
         pass
 

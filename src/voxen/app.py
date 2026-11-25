@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import sys
 import time
 import tkinter as tk
 from concurrent.futures import ThreadPoolExecutor
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 class VoxenApp:
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: tk.Tk, *, start_services: bool = True) -> None:
         self.root = root
         self.root.title("Voxen")
         self.root.minsize(MIN_WIDTH, MIN_HEIGHT)
@@ -82,7 +83,8 @@ class VoxenApp:
         self.overlay = RecordingOverlay(self.root, level_provider=lambda: self.dictation.audio_level, palette=self.palette)
         self._theme_poll_id = self.root.after(theme.APPEARANCE_POLL_MS, self._poll_system_appearance)
         self.root.withdraw()
-        self._start_services()
+        if start_services:
+            self._start_services()
         self.root.after(EVENT_POLL_MS, self._drain_events)
         self.root.protocol("WM_DELETE_WINDOW", self._hide_settings)
 
@@ -157,6 +159,10 @@ class VoxenApp:
             self.appearance_menu.add_radiobutton(label=label, value=value, variable=self.appearance_var,
                                                 command=self._select_appearance)
         self.preferences_menu.add_cascade(label="Appearance", menu=self.appearance_menu)
+        if sys.platform == "linux":
+            self.preferences_menu.add_separator()
+            self.preferences_menu.add_command(label="Pause / Resume", command=self._toggle_pause)
+            self.preferences_menu.add_command(label="Quit Voxen", command=self.close)
         more.configure(menu=self.preferences_menu)
         more.grid(row=0, column=3, sticky="ns")
 
@@ -352,6 +358,10 @@ class VoxenApp:
         except Exception as exc:
             logger.warning("Failed to start the global hotkey listener: %s", exc)
             self.detail_var.set(str(exc))
+        # X11 tray protocols vary by desktop; keep an accessible taskbar window.
+        if sys.platform == "linux":
+            self._show_settings()
+            return
         try:
             self.tray = SystemTray(
                 self._request_show_settings,
@@ -382,7 +392,10 @@ class VoxenApp:
     def _hide_settings(self) -> None:
         if self.hotkey_capture is not None and self.hotkey_capture.capturing:
             self._cancel_hotkey_capture()
-        self.root.withdraw()
+        if sys.platform == "linux":
+            self.root.iconify()
+        else:
+            self.root.withdraw()
 
     def _toggle_pause(self) -> None:
         was_recording = self.state is AppState.RECORDING
@@ -621,6 +634,15 @@ def main() -> None:
     except Exception:
         logger.warning("Failed to set DPI awareness", exc_info=True)
 
+    if sys.platform == "linux":
+        from .infrastructure.linux import require_x11
+
+        require_x11()
+    if sys.argv[1:] == ["--check-runtime"]:
+        from .infrastructure.runtime_check import check_runtime
+
+        check_runtime()
+        return
     root = tk.Tk()
     VoxenApp(root)
     root.mainloop()

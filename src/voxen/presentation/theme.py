@@ -75,6 +75,10 @@ def read_system_appearance() -> str | None:
             CFPreferencesSynchronize(*scope)
             value = CFPreferencesCopyValue("AppleInterfaceStyle", *scope)
             return "dark" if value == "Dark" else "light"
+        if sys.platform == "linux":
+            from ..infrastructure.linux import read_portal_appearance
+
+            return read_portal_appearance()
     except (ImportError, OSError, AttributeError, RuntimeError, TypeError, ValueError):
         return None
     return None

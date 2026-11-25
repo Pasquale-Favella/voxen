@@ -64,6 +64,10 @@ class ConfigStore:
     def _default_path() -> Path:
         if sys.platform == "darwin":
             base = Path.home() / "Library" / "Application Support" / "Voxen"
+        elif sys.platform == "linux":
+            from .infrastructure.linux import xdg_directory
+
+            base = xdg_directory("XDG_CONFIG_HOME", ".config") / "voxen"
         else:
             base = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Voxen"
         return base / "config.json"

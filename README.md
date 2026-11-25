@@ -7,7 +7,7 @@
   <h1>Voxen</h1>
 
   <p><strong>Your voice, anywhere you type.</strong></p>
-  <p>Local-first voice dictation for Windows and macOS.<br>
+  <p>Local-first voice dictation for Windows, macOS and Linux (X11).<br>
   Hold a shortcut, speak naturally, and release to type.</p>
 
   <p>
@@ -21,7 +21,7 @@
 
 <br>
 
-Voxen is a small desktop utility that turns your voice into text in the app you're already using. No separate editor to open, no cloud transcription service, no account to create. It stays in the system tray or menu bar until you need it.
+Voxen is a small desktop utility that turns your voice into text in the app you're already using. No separate editor to open, no cloud transcription service, no account to create. It stays in the system tray, menu bar or minimized Linux window until you need it.
 
 ## How it works
 
@@ -31,11 +31,11 @@ Voxen is a small desktop utility that turns your voice into text in the app you'
 2. Hold your shortcut and speak. A compact floating pill shows the audio level and elapsed time.
 3. Release the shortcut. Voxen transcribes locally and, by default, pastes the result into the focused application.
 
-| Windows | macOS |
+| Windows / Linux (X11) | macOS |
 | :--- | :--- |
 | <kbd>Ctrl</kbd> + <kbd>Space</kbd> | <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd> |
 
-Change the shortcut in the dashboard. Closing the window hides Voxen, while the global shortcut remains available. Pause, reopen or quit from the tray/menu bar.
+Change the shortcut in the dashboard. Closing the window hides Voxen, while the global shortcut remains available. On Windows/macOS, pause, reopen or quit from the tray/menu bar. On Linux, the window minimizes to the taskbar; Pause / Resume and Quit are in the … menu.
 
 ## Designed to stay out of your way
 
@@ -53,10 +53,11 @@ Get the latest published build from [GitHub Releases](https://github.com/Pasqual
 | :--- | :--- | :--- |
 | Windows | `Voxen-Setup-<version>.exe` | Run the installer |
 | macOS | `Voxen-macos.dmg` | Open the disk image and move Voxen to Applications |
+| Linux x86-64 (X11) | `voxen_<version>_amd64.deb` / `Voxen-<version>-x86_64.AppImage` | Install the DEB or make the AppImage executable |
 
 On first launch, allow microphone access and wait for the selected model to download and load. On macOS, enable **Accessibility** in System Settings → Privacy & Security for global shortcuts and text injection; grant **Input Monitoring** if requested.
 
-Voxen's desktop packages target Windows and macOS. Linux is used in CI for automated tests, not offered as a supported desktop release.
+Linux packaging initially targets x86-64 X11 sessions on Ubuntu 22.04 or newer (other compatible distributions may work). Native Wayland global shortcuts and paste are not supported. See [Linux installation](docs/build.md#linux-x86-64-x11) for dependencies and launch instructions.
 
 ## Speech engines
 
@@ -71,7 +72,7 @@ Existing saved model choices are preserved when upgrading. Parakeet detects lang
 
 ## Appearance
 
-Open **… → Appearance** to choose **System**, **Light** or **Dark**. The preference applies immediately to the dashboard, brand mark and recording pill without restarting the recognition engine. System mode follows Windows/macOS appearance changes, checked every two seconds.
+Open **… → Appearance** to choose **System**, **Light** or **Dark**. The preference applies immediately to the dashboard, brand mark and recording pill without restarting the recognition engine. System mode follows Windows/macOS appearance changes and Linux desktop portal preferences when available, checked every two seconds.
 
 ## Run from source
 
@@ -85,7 +86,7 @@ python -m venv .venv
 
 Activate the environment:
 
-| Windows PowerShell | macOS |
+| Windows PowerShell | macOS / Linux |
 | :--- | :--- |
 | ` .\.venv\Scripts\Activate.ps1 ` | `source .venv/bin/activate` |
 
