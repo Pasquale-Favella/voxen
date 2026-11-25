@@ -58,11 +58,17 @@ jobs:
           VOXEN_PARAKEET_TEST_WAV: /tmp/voxen-smoke.wav
           VOXEN_PARAKEET_TEST_EXPECTED: hello world
         run: python -m pytest tests/test_parakeet_integration.py -q -rs
+      - name: Upload temporary smoke fixture
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: temporary-parakeet-fixture
+          path: /tmp/voxen-smoke.wav
 
   package:
     name: Package (${{ matrix.os }})
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-    needs: check
+    if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    needs: [check, parakeet-integration]
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -86,9 +92,75 @@ jobs:
       - name: Install Inno Setup
         if: runner.os == 'Windows'
         run: choco install innosetup --no-progress -y
+      - name: Download temporary smoke fixture
+        if: github.event_name == 'pull_request'
+        uses: actions/download-artifact@v5
+        with:
+          name: temporary-parakeet-fixture
+          path: smoke-fixture
+      - name: Temporarily instrument frozen application for smoke test
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          Path("src/voxen/__main__.py").write_text('''import os
+          import wave
+          from pathlib import Path
+
+          from voxen.app import main
+          from voxen.stt import ParakeetEngine
+
+          if __name__ == "__main__":
+              if "VOXEN_TEMP_SMOKE" not in os.environ:
+                  main()
+              else:
+                  import numpy as np
+                  import traceback
+                  output = Path(os.environ["VOXEN_TEMP_SMOKE"])
+                  try:
+                      with wave.open(os.environ["VOXEN_TEMP_WAV"], "rb") as source:
+                          audio = np.frombuffer(source.readframes(source.getnframes()), dtype="<i2").astype(np.float32) / 32768.0
+                      cache = output.parent / "model-cache"
+                      engine = ParakeetEngine(cache_root=cache)
+                      engine.load()
+                      assert engine._vad_enabled
+                      transcript = engine.transcribe(audio)
+                      assert "hello world" in transcript.casefold(), transcript
+                      engine.unload()
+                      offline = ParakeetEngine(cache_root=cache, offline=True)
+                      offline.load()
+                      assert offline._vad_enabled
+                      assert offline.transcribe(audio) == transcript
+                      offline.unload()
+                      output.write_text("PASS: " + transcript, encoding="utf-8")
+                  except Exception:
+                      output.write_text(traceback.format_exc(), encoding="utf-8")
+                      raise
+          ''', encoding="utf-8")
+          PY
       - name: Build application
         run: python scripts/build.py
+      - name: Run frozen Parakeet smoke test
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+          root = Path.cwd()
+          result = root / "smoke-fixture" / "result.txt"
+          executable = root / ("dist/Voxen/Voxen.exe" if sys.platform == "win32" else "dist/Voxen.app/Contents/MacOS/Voxen")
+          env = dict(os.environ, VOXEN_TEMP_SMOKE=str(result), VOXEN_TEMP_WAV=str(root / "smoke-fixture" / "voxen-smoke.wav"))
+          subprocess.run([str(executable)], env=env, timeout=480, check=True)
+          report = result.read_text(encoding="utf-8")
+          print(report)
+          assert report.startswith("PASS:"), report
+          PY
       - name: Upload package
+        if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: Voxen-${{ matrix.os }}
