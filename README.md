@@ -22,7 +22,7 @@ Voxen turns speech into text inside the application you are already using. It st
 HOLD HOTKEY  ->  SPEAK  ->  RELEASE  ->  TEXT IN THE ACTIVE APP
 ```
 
-The audio is transcribed locally with NVIDIA Parakeet TDT v3 (the default) or `faster-whisper` through the lightweight `onnx-asr` runtime. A network connection is needed for the first model download only; inference then remains on the machine.
+The audio is transcribed locally with NVIDIA Parakeet TDT v3 (the default) through the lightweight `onnx-asr` runtime, or Faster Whisper through CTranslate2. A network connection is needed for the first model download only; inference then remains on the machine.
 
 ## Quick start
 
@@ -118,7 +118,7 @@ PyInstaller builds for the operating system it runs on, so build on the target p
 .\scripts\build-windows.ps1
 ```
 
-This creates a portable `dist\Voxen\` folder. If Inno Setup is installed, it also creates `dist\installer\Voxen-Setup-0.1.9.exe`; otherwise the script creates `dist\Voxen-windows.zip`.
+This creates a portable `dist\Voxen\` folder. If Inno Setup is installed, it also creates `dist\installer\Voxen-Setup-0.2.0.exe`; otherwise the script creates `dist\Voxen-windows.zip`.
 
 ### macOS
 
