@@ -104,8 +104,8 @@ class VoxenApp:
 
         self._label(content, text="Voxen", foreground="TEXT_PRIMARY",
                  font=(theme.FONT_FAMILY, 28, "bold")).pack(anchor="w")
-        tk.Label(content, text="Your voice, anywhere you type.", bg=theme.SURFACE,
-                 fg=theme.TEXT_SECONDARY, font=(theme.FONT_FAMILY, 10)).pack(anchor="w", pady=(0, 22))
+        self._label(content, text="Your voice, anywhere you type.",
+                 foreground="TEXT_SECONDARY", font=(theme.FONT_FAMILY, 10)).pack(anchor="w", pady=(0, 22))
 
         controls = self._themed(tk.Frame(content), bg="SURFACE")
         controls.pack(fill="x")
