@@ -41,7 +41,7 @@ chmod +x Voxen-VERSION-x86_64.AppImage
 
 If FUSE is unavailable, use `APPIMAGE_EXTRACT_AND_RUN=1 ./Voxen-VERSION-x86_64.AppImage`. The AppImage needs the usual X11 and audio libraries on the host. Neither package requires an installed Python interpreter.
 
-Voxen requires an X11 session for global shortcuts and clipboard paste. Native Wayland is rejected. The dashboard minimizes to the taskbar instead of relying on a desktop-specific tray service. Pause / Resume and Quit are in the … menu. Linux clipboard restoration is plain text only.
+Voxen requires an X11 session for global shortcuts and clipboard paste. Native Wayland is rejected with an explanation at startup. The dashboard minimizes to the taskbar instead of relying on a desktop-specific tray service. Pause / Resume and Quit are in the … menu. Linux clipboard restoration is plain text only.
 
 To build locally (Ubuntu):
 
@@ -53,7 +53,7 @@ chmod +x appimagetool
 APPIMAGETOOL="$PWD/appimagetool" bash scripts/build-linux.sh
 ```
 
-Use a supported Python 3.11–3.13 interpreter for the virtual environment. Outputs: `dist/voxen_<version>_amd64.deb` and `dist/Voxen-<version>-x86_64.AppImage`. The packaging job runs on PRs, tags and manual dispatch and smoke-tests both packages under Xvfb. Physical microphones and interactive desktop sessions require real-machine validation.
+Use a supported Python 3.11–3.13 interpreter for the virtual environment. Outputs: `dist/voxen_<version>_amd64.deb` and `dist/Voxen-<version>-x86_64.AppImage`. The packaging job runs on PRs, tags and manual dispatch and smoke-tests both packages under Xvfb. The CI also exercises real X11 shortcut events and plain-text clipboard paste in a virtual display. Physical microphones, window-manager behavior and interactive desktop sessions require real-machine validation.
 
 ## Assets and validation
 

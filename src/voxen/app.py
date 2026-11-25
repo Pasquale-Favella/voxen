@@ -410,7 +410,7 @@ class VoxenApp:
             self.detail_var.set(f"Hold {self.config.hotkey} to dictate.")
         elif self.state is AppState.PAUSED:
             self.status_var.set("Paused")
-            self.detail_var.set("Resume from the Voxen tray icon.")
+            self.detail_var.set("Resume from the … menu." if sys.platform == "linux" else "Resume from the Voxen tray icon.")
 
     def _request_recording_start(self) -> None:
         if self.dictation.begin_recording():
@@ -637,7 +637,19 @@ def main() -> None:
     if sys.platform == "linux":
         from .infrastructure.linux import require_x11
 
-        require_x11()
+        try:
+            require_x11()
+        except SystemExit as exc:
+            try:
+                from tkinter import messagebox
+
+                root = tk.Tk()
+                root.withdraw()
+                messagebox.showerror("Voxen — X11 required", str(exc), parent=root)
+                root.destroy()
+            except tk.TclError:
+                pass
+            raise
     if sys.argv[1:] == ["--check-runtime"]:
         from .infrastructure.runtime_check import check_runtime
 

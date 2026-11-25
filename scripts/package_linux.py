@@ -46,7 +46,7 @@ def main() -> None:
     control.mkdir()
     (control / "control").write_text(
         f"Package: voxen\nVersion: {version}\nSection: utils\nPriority: optional\nArchitecture: amd64\n"
-        "Maintainer: Voxen contributors <maintainers@localhost>\n"
+        "Maintainer: Voxen contributors\n"
         "Depends: libc6 (>= 2.35), libportaudio2, xclip, libx11-6, libxtst6, libxext6, libxrender1, libxi6, libxkbcommon0\n"
         "Recommends: libglib2.0-bin, xdg-desktop-portal\n"
         "Description: Local-first voice dictation for X11 desktops\n",

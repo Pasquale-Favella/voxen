@@ -35,7 +35,7 @@ Voxen is a small desktop utility that turns your voice into text in the app you'
 | :--- | :--- |
 | <kbd>Ctrl</kbd> + <kbd>Space</kbd> | <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd> |
 
-Change the shortcut in the dashboard. Closing the window hides Voxen, while the global shortcut remains available. On Windows/macOS, pause, reopen or quit from the tray/menu bar. On Linux, the window minimizes to the taskbar; Pause / Resume and Quit are in the … menu.
+Change the shortcut in the dashboard. Closing the window hides Voxen on Windows/macOS or minimizes it on Linux, while the global shortcut remains available. On Windows/macOS, pause, reopen or quit from the tray/menu bar. On Linux, the window minimizes to the taskbar; Pause / Resume and Quit are in the … menu.
 
 ## Designed to stay out of your way
 

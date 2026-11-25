@@ -119,6 +119,8 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python scripts/check_release_version.py
+      - name: Test X11 input and clipboard
+        run: xvfb-run -a env XDG_SESSION_TYPE=x11 VOXEN_X11_SMOKE=1 python -m pytest tests/test_linux_x11.py -q
       - name: Fetch pinned AppImage packaging tool
         run: |
           curl --fail --location --retry 3 https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage -o "$RUNNER_TEMP/appimagetool"
