@@ -69,3 +69,33 @@ python -m pytest -q
 On Linux CI, `xvfb-run -a python -m pytest -q` also exercises real Tk widgets. The dedicated model job downloads and validates Parakeet, transcribes a speech fixture and reloads it offline.
 
 The standard GitHub Actions workflow packages builds on version tags or manual dispatch. Version metadata in `pyproject.toml`, `src/voxen/__init__.py` and `installer/Voxen.iss` must agree before release. Run `python scripts/check_release_version.py` to verify.
+
+## Release integrity and signing
+
+The tag-triggered release job stages the Windows EXE, macOS DMG, Linux DEB and AppImage (and optional Windows ZIP), generates `SHA256SUMS`, creates GitHub Artifact Attestations for the final bytes via Sigstore, verifies them, then publishes the release. The attestation associates the artifacts with the repository and tag-triggered workflow; it does not imply a platform-native code signature. Older releases may not include attestations.
+
+Download the desired asset and `SHA256SUMS` from the same release. On Linux, check the downloaded files:
+
+```bash
+sha256sum --check --ignore-missing SHA256SUMS
+```
+
+On macOS, use `shasum -a 256 <installer>`; on Windows PowerShell, use `Get-FileHash <installer> -Algorithm SHA256` and compare with the matching line. A checksum alone does not authenticate the publisher.
+
+For cryptographic provenance, install a recent [GitHub CLI](https://cli.github.com/) and verify each downloaded file against this repository and its release tag:
+
+```bash
+gh attestation verify ./Voxen-macos.dmg --repo Pasquale-Favella/voxen --source-ref refs/tags/vVERSION
+gh attestation verify ./SHA256SUMS --repo Pasquale-Favella/voxen --source-ref refs/tags/vVERSION
+```
+
+Replace `vVERSION` with the actual tag (e.g. `v0.2.0` if such a release is published with this workflow). The same verification applies to EXE, DEB, AppImage and ZIP files.
+
+### Native platform signing — not yet configured
+
+- Windows: Authenticode for the application EXE and final installer, with a trusted timestamp. [SignPath Foundation](https://signpath.org/) offers free signing for eligible open-source projects, subject to approval.
+- macOS: Developer ID Application signing, hardened runtime, Apple notarization and stapling. An Apple Developer Program account and signing identity are needed.
+- Linux: GitHub provenance attestation covers both packages. Embedded AppImage GPG signatures or a signed APT repository can be added later if a stable project signing identity is established.
+
+The keyless workflow does not require private signing keys and does not remove Windows SmartScreen or macOS Gatekeeper prompts. Do not commit certificates, signing keys or API tokens. Native signing must happen before the final checksum and attestation step. Published release assets must not be silently replaced; issue a new version for changes.
+

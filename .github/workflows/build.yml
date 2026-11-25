@@ -143,29 +143,80 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Attach installers to release
-    if: startsWith(github.ref, 'refs/tags/')
+    name: Attest and publish installers
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [package, package-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - name: Download build artifacts
         uses: actions/download-artifact@v5
         with:
           pattern: Voxen-*
           path: release-assets
-          merge-multiple: true
-      - name: Upload installers to GitHub release
+          merge-multiple: false
+      - name: Stage final release assets and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-dist
+          version="${GITHUB_REF_NAME#v}"
+          for name in "Voxen-Setup-$version.exe" "Voxen-macos.dmg" "voxen_${version}_amd64.deb" "Voxen-$version-x86_64.AppImage"; do
+            mapfile -d '' files < <(find release-assets -type f -name "$name" -print0)
+            if [[ ${#files[@]} -ne 1 ]]; then
+              echo "Expected exactly one $name, found ${#files[@]}" >&2
+              exit 1
+            fi
+            test -s "${files[0]}"
+            cp -- "${files[0]}" "release-dist/$name"
+          done
+          # A portable Windows ZIP is optional, but never replaces the installer.
+          mapfile -d '' zips < <(find release-assets -type f -name 'Voxen-windows.zip' -print0)
+          if [[ ${#zips[@]} -gt 1 ]]; then
+            echo "Duplicate portable Windows ZIP" >&2
+            exit 1
+          elif [[ ${#zips[@]} -eq 1 ]]; then
+            test -s "${zips[0]}"
+            cp -- "${zips[0]}" release-dist/
+          fi
+          cd release-dist
+          LC_ALL=C sha256sum -- * > ../SHA256SUMS
+          mv ../SHA256SUMS .
+          sha256sum --check SHA256SUMS
+      - name: Sign build provenance using GitHub OIDC and Sigstore
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: 'release-dist/*'
+      - name: Verify signed provenance before publishing
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --title "Voxen ${GITHUB_REF_NAME}" \
-            --generate-notes || true
-          while IFS= read -r -d '' asset; do
-            gh release upload "${GITHUB_REF_NAME}" "$asset" \
-              --repo "${GITHUB_REPOSITORY}" \
-              --clobber
-          done < <(find release-assets -type f \( -name '*.exe' -o -name '*.zip' -o -name '*.dmg' -o -name '*.deb' -o -name '*.AppImage' \) -print0)
+          set -euo pipefail
+          for asset in release-dist/*; do
+            gh attestation verify "$asset" --repo "$GITHUB_REPOSITORY" --source-ref "$GITHUB_REF"
+          done
+      - name: Publish attested release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Publish new releases only after all four installers, their digests
+          # and signed provenance are available. Do not silently replace
+          # the binaries of an existing public release.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            draft=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+            if [[ "$draft" != true ]]; then
+              echo "Release is already public; create a new version instead of replacing attested assets." >&2
+              exit 1
+            fi
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "Voxen $GITHUB_REF_NAME" --generate-notes --draft
+          fi
+          gh release upload "$GITHUB_REF_NAME" release-dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
