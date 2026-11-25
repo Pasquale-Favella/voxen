@@ -5,6 +5,7 @@ This test downloads the pinned model once, then reloads with downloads blocked.
 Run with the parakeet extra installed; no synthetic model is substituted.
 """
 
+import inspect
 import os
 import wave
 from pathlib import Path
@@ -13,6 +14,16 @@ import numpy as np
 import pytest
 
 from voxen.stt import ParakeetEngine
+
+
+def test_installed_onnx_runtime_api() -> None:
+    pytest.importorskip("onnx_asr")
+    runtime = pytest.importorskip("onnxruntime")
+    from onnx_asr.loader import Manager
+
+    assert "CPUExecutionProvider" in runtime.get_available_providers()
+    assert "offline" in inspect.signature(Manager.create_asr).parameters
+    assert "offline" in inspect.signature(Manager.create_vad).parameters
 
 
 def test_real_parakeet_offline(monkeypatch, tmp_path) -> None:
