@@ -1,0 +1,104 @@
+name: Publish Voxen v0.2.0
+on:
+  push:
+    branches: ["release/v0.2.0"]
+    paths: [".github/workflows/publish-v0.2.0.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: publish-voxen-v0.2.0
+  cancel-in-progress: false
+env:
+  RELEASE_TAG: v0.2.0
+  RELEASE_COMMIT: f7f0550769d01fec056dd6bd0665744f0e6ee928
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_COMMIT }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: python scripts/check_release_version.py
+      - run: python -m ruff check src tests scripts
+      - run: python -m pytest -q
+  package:
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_COMMIT }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e ".[dev]"
+      - run: python scripts/check_release_version.py
+      - run: python -m ruff check src tests scripts
+      - run: python -m pytest -q
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        run: choco install innosetup --no-progress -y
+      - name: Build application
+        run: python scripts/build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Voxen-${{ matrix.os }}
+          path: |
+            dist/installer/*.exe
+            dist/Voxen-macos.dmg
+          if-no-files-found: error
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: Voxen-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish both validated installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t windows < <(find release-assets -type f -name 'Voxen-Setup-0.2.0.exe')
+          mapfile -t macos < <(find release-assets -type f -name 'Voxen-macos.dmg')
+          test "${#windows[@]}" -eq 1
+          test "${#macos[@]}" -eq 1
+          test -s "${windows[0]}"
+          test -s "${macos[0]}"
+          cat > release-notes.md <<'NOTES'
+          ## What's new
+
+          - NVIDIA Parakeet TDT v3 INT8 is now the default speech recognition engine on fresh installations. Existing saved model choices are preserved.
+          - Local CPU inference using ONNX Runtime, automatic language detection, Silero VAD and offline reload from verified cached weights.
+          - Pinned model revisions, SHA-256 validation and atomic repair of corrupted cache files.
+          - Safer engine lifecycle and audio handling, clearer model selection and consistent packaging.
+          - Improved benchmarking and regression tests. Faster Whisper remains available.
+
+          ## Installation
+
+          Download the Windows installer or macOS disk image below. The first use of a model requires a network connection to download its weights; intact cached weights are used offline.
+
+          ## Validation
+
+          PR #8 passed unit tests, real-model CPU integration tests on Linux and frozen-application transcription smoke tests on Windows and macOS. Comparative performance and human multilingual accuracy benchmarks remain outstanding.
+
+          Full changes: https://github.com/Pasquale-Favella/voxen/pull/8
+          NOTES
+          gh release create "$RELEASE_TAG" "${windows[0]}" "${macos[0]}" \
+            --repo "$GITHUB_REPOSITORY" --target "$RELEASE_COMMIT" \
+            --title "Voxen $RELEASE_TAG" --notes-file release-notes.md --draft
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url,tagName,isDraft,assets
