@@ -1,6 +1,6 @@
 """Measure STT latency, throughput, process RSS and transcription accuracy.
 
-Install the dev and parakeet extras. Run each model in a fresh process.
+Install the dev extra. Run each model in a fresh process.
 Pass --wav with real speech and matching --reference UTF-8 text files.
 The first load may download weights; the second measures cached cold load.
 RSS is sampled at 20 ms intervals, so very brief peaks may be missed.
