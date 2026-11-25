@@ -5,6 +5,6 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 }
 
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,parakeet]"
 .\.venv\Scripts\python.exe scripts\create_assets.py
 .\.venv\Scripts\python.exe scripts\build.py
