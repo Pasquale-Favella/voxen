@@ -38,7 +38,7 @@ _FIELD_VALIDATORS: dict[str, Callable[[object], bool]] = {
     "language": lambda value: value in SUPPORTED_LANGUAGES,
     "device": lambda value: value in _ALLOWED_DEVICES,
     "compute_type": lambda value: value in _ALLOWED_COMPUTE_TYPES,
-    "sample_rate": lambda value: isinstance(value, int) and not isinstance(value, bool) and value > 0,
+    "sample_rate": lambda value: type(value) is int and value == 16_000,
 }
 
 
