@@ -1,6 +1,21 @@
+import sys
+import types
+from pathlib import Path
+
+import numpy as np
 import pytest
 
-from voxen.stt import FasterWhisperEngine, ModelConfig, ModelManager, _resolve_compute_type
+from voxen.stt import (
+    PARAKEET_ASR_NAME,
+    PARAKEET_MODEL,
+    PARAKEET_REVISION,
+    FasterWhisperEngine,
+    ModelConfig,
+    ModelManager,
+    ParakeetEngine,
+    _resolve_compute_type,
+    default_engine_factory,
+)
 
 
 class FakeEngine:
@@ -168,3 +183,191 @@ def test_resolve_compute_type_maps_plain_int8_off_cuda() -> None:
     assert _resolve_compute_type("int8", "cpu") == "int8"
     assert _resolve_compute_type("float16", "cuda") == "float16"
     assert _resolve_compute_type("int8_float16", "cuda") == "int8_float16"
+
+
+MODEL_FILES = ("config.json", "vocab.txt", "encoder-model.int8.onnx", "decoder_joint-model.int8.onnx")
+VAD_FILES = ("config.json", "silero_vad.onnx")
+
+
+class FakeOnnxAsrModel:
+    def __init__(self, transcript: str = "ciao", segments=None) -> None:
+        self.transcript = transcript
+        self.segments = segments
+        self.calls: list[tuple[object, int]] = []
+        self.vad = None
+        self.vad_options: dict = {}
+
+    def recognize(self, waveform, sample_rate: int = 16_000):
+        self.calls.append((waveform, sample_rate))
+        return self.segments if self.segments is not None else self.transcript
+
+    def with_vad(self, vad, **options):
+        self.vad = vad
+        self.vad_options = options
+        return self
+
+
+def _write_files(directory: Path, names: tuple[str, ...]) -> None:
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        (directory / name).write_text("fake", encoding="utf-8")
+
+
+def _install_fake_onnx_asr(monkeypatch, tmp_path, model, *, cached: bool, vad: bool = True, vad_fails: bool = False) -> dict:
+    if cached:
+        _write_files(tmp_path / PARAKEET_MODEL, MODEL_FILES)
+        if vad:
+            _write_files(tmp_path / "silero-vad", VAD_FILES)
+
+    state: dict = {"loads": [], "vads": [], "offline": []}
+
+    def load_model(name, path=None, *, quantization=None, providers=None, revision=None, **kwargs):
+        state["loads"].append((name, Path(path), {**kwargs, "quantization": quantization, "providers": providers, "revision": revision}))
+        state["offline"].append(Path(path).exists())
+        _write_files(Path(path), MODEL_FILES)
+        return model
+
+    def load_vad(name, path=None, *, providers=None, revision=None, **kwargs):
+        state["vads"].append((name, Path(path), {**kwargs, "providers": providers, "revision": revision}))
+        if vad_fails:
+            raise RuntimeError("VAD download failed")
+        _write_files(Path(path), VAD_FILES)
+        return types.SimpleNamespace(name=name)
+
+    module = types.ModuleType("onnx_asr")
+    module.load_model = load_model
+    module.load_vad = load_vad
+    monkeypatch.setitem(sys.modules, "onnx_asr", module)
+    return state
+
+
+def test_default_engine_factory_selects_engine_from_model_name() -> None:
+    assert isinstance(default_engine_factory("base", "auto", "int8"), FasterWhisperEngine)
+    assert isinstance(default_engine_factory(PARAKEET_MODEL, "auto", "int8"), ParakeetEngine)
+
+
+def test_parakeet_engine_downloads_pinned_int8_model_with_cpu_provider(monkeypatch, tmp_path) -> None:
+    model = FakeOnnxAsrModel()
+    state = _install_fake_onnx_asr(monkeypatch, tmp_path, model, cached=False)
+
+    engine = ParakeetEngine(cache_root=tmp_path, device="auto")
+    engine.load()
+
+    name, path, kwargs = state["loads"][0]
+    assert name == PARAKEET_ASR_NAME
+    assert path == tmp_path / PARAKEET_MODEL
+    assert kwargs["quantization"] == "int8"
+    assert kwargs["providers"] == ["CPUExecutionProvider"]
+    assert kwargs["revision"] == PARAKEET_REVISION
+    assert state["offline"] == [False]
+    assert engine._vad_enabled is True
+    assert model.vad_options["max_speech_duration_s"] == 20
+
+
+def test_parakeet_engine_loads_from_local_cache_without_network(monkeypatch, tmp_path) -> None:
+    state = _install_fake_onnx_asr(monkeypatch, tmp_path, FakeOnnxAsrModel(), cached=True)
+
+    ParakeetEngine(cache_root=tmp_path, device="cpu").load()
+
+    assert state["offline"] == [True]
+    assert len(state["vads"]) == 1
+
+
+def test_parakeet_engine_repairs_incomplete_download(monkeypatch, tmp_path) -> None:
+    _install_fake_onnx_asr(monkeypatch, tmp_path, FakeOnnxAsrModel(), cached=False)
+    incomplete = tmp_path / PARAKEET_MODEL
+    incomplete.mkdir()
+    (incomplete / "config.json").write_text("partial", encoding="utf-8")
+
+    ParakeetEngine(cache_root=tmp_path, device="cpu").load()
+
+    assert all((incomplete / name).is_file() for name in MODEL_FILES)
+
+
+def test_parakeet_engine_transcribes_numpy_array(monkeypatch, tmp_path) -> None:
+    segments = [types.SimpleNamespace(text=" ciao "), types.SimpleNamespace(text="mondo")]
+    model = FakeOnnxAsrModel(segments=segments)
+    _install_fake_onnx_asr(monkeypatch, tmp_path, model, cached=True)
+    engine = ParakeetEngine(cache_root=tmp_path, device="cpu")
+    engine.load()
+
+    result = engine.transcribe(np.zeros(1600, dtype=np.float32), "it")
+
+    assert result == "ciao mondo"
+    waveform, sample_rate = model.calls[0]
+    assert len(waveform) == 1600
+    assert sample_rate == 16_000
+
+
+def test_parakeet_engine_falls_back_to_fixed_segmentation_without_vad(monkeypatch, tmp_path) -> None:
+    model = FakeOnnxAsrModel(transcript="testo")
+    _install_fake_onnx_asr(monkeypatch, tmp_path, model, cached=True, vad_fails=True)
+    engine = ParakeetEngine(cache_root=tmp_path, device="cpu")
+    engine.load()
+
+    result = engine.transcribe(np.zeros(3 * 20 * 16_000, dtype=np.float32))
+
+    assert engine._vad_enabled is False
+    assert len(model.calls) == 3
+    assert all(len(waveform) == 20 * 16_000 for waveform, _ in model.calls)
+    assert result == "testo testo testo"
+
+
+def test_parakeet_engine_respects_cancellation_between_segments(monkeypatch, tmp_path) -> None:
+    model = FakeOnnxAsrModel(segments=[types.SimpleNamespace(text="uno"), types.SimpleNamespace(text="due")])
+    _install_fake_onnx_asr(monkeypatch, tmp_path, model, cached=True)
+    engine = ParakeetEngine(cache_root=tmp_path, device="cpu")
+    engine.load()
+    checks = {"count": 0}
+
+    def should_cancel() -> bool:
+        checks["count"] += 1
+        return checks["count"] >= 2
+
+    with pytest.raises(RuntimeError, match="cancelled"):
+        engine.transcribe(np.zeros(16, dtype=np.float32), should_cancel=should_cancel)
+
+    assert len(model.calls) == 1
+
+
+def test_parakeet_engine_returns_empty_text_for_empty_audio(monkeypatch, tmp_path) -> None:
+    model = FakeOnnxAsrModel()
+    _install_fake_onnx_asr(monkeypatch, tmp_path, model, cached=True)
+    engine = ParakeetEngine(cache_root=tmp_path, device="cpu")
+    engine.load()
+
+    assert engine.transcribe([]) == ""
+    assert model.calls == []
+
+
+def test_parakeet_engine_reports_missing_optional_extra(monkeypatch, tmp_path) -> None:
+    monkeypatch.setitem(sys.modules, "onnx_asr", None)
+
+    with pytest.raises(RuntimeError, match="requires onnx-asr"):
+        ParakeetEngine(cache_root=tmp_path).load()
+
+
+def test_delete_cache_removes_model_and_vad_directories(monkeypatch, tmp_path) -> None:
+    _install_fake_onnx_asr(monkeypatch, tmp_path, FakeOnnxAsrModel(), cached=True)
+    assert (tmp_path / PARAKEET_MODEL).is_dir()
+    assert (tmp_path / "silero-vad").is_dir()
+
+    ParakeetEngine.delete_cache(tmp_path)
+
+    assert not (tmp_path / PARAKEET_MODEL).exists()
+    assert not (tmp_path / "silero-vad").exists()
+
+
+def test_model_manager_delete_model_unloads_engine_and_cache(monkeypatch, tmp_path) -> None:
+    model = FakeOnnxAsrModel()
+    _install_fake_onnx_asr(monkeypatch, tmp_path, model, cached=True)
+    deleted: list[str] = []
+    monkeypatch.setattr(ParakeetEngine, "delete_cache", classmethod(lambda cls, root=None: deleted.append("parakeet")))
+    manager = ModelManager()
+    engine = manager.get_engine(ModelConfig(PARAKEET_MODEL))
+
+    manager.delete_model(PARAKEET_MODEL)
+
+    assert engine._model is None
+    assert manager._engine is None
+    assert deleted == ["parakeet"]

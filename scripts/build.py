@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -36,6 +37,12 @@ def main() -> None:
         "ctranslate2",
         "--collect-all",
         "av",
+    ]
+    # Parakeet is an optional extra; bundle its ONNX runtime only when installed.
+    for package in ("onnx_asr", "onnxruntime"):
+        if importlib.util.find_spec(package) is not None:
+            command += ["--collect-all", package]
+    command += [
         "--add-data",
         f"{ROOT / 'assets' / 'voxen-mark.png'}{data_separator}assets",
     ]

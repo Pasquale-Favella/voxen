@@ -22,7 +22,7 @@ Voxen turns speech into text inside the application you are already using. It st
 HOLD HOTKEY  ->  SPEAK  ->  RELEASE  ->  TEXT IN THE ACTIVE APP
 ```
 
-The audio is transcribed locally with `faster-whisper`. A network connection is needed for the first model download only; inference then remains on the machine.
+The audio is transcribed locally with `faster-whisper` or, optionally, NVIDIA Parakeet TDT v3 through the lightweight `onnx-asr` runtime. A network connection is needed for the first model download only; inference then remains on the machine.
 
 ## Quick start
 
@@ -50,7 +50,25 @@ python -m pip install -e '.[dev]'
 python -m voxen
 ```
 
-The first launch opens the Voxen dashboard and warms the selected Whisper model in the background. With `Auto` device selection, Voxen uses CUDA when CTranslate2 detects a CUDA-capable GPU; otherwise it uses the CPU.
+The first launch opens the Voxen dashboard and warms the selected model in the background. With `Auto` device selection, Voxen uses CUDA when CTranslate2 detects a CUDA-capable GPU; otherwise it uses the CPU.
+
+## Parakeet (optional)
+
+Parakeet runs through [`onnx-asr`](https://github.com/istupakov/onnx-asr) using the pre-exported, INT8-quantized [multilingual ONNX weights](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx). No PyTorch, NeMo, Transformers, Docker, or external server is involved; inference uses ONNX Runtime with `CPUExecutionProvider` by default.
+
+```powershell
+python -m pip install -e ".[parakeet]"
+```
+
+Select `parakeet-tdt-v3` in the **Model** dropdown and save. Notes:
+
+- The model is downloaded once into `%LOCALAPPDATA%\Voxen\models` (macOS: `~/Library/Application Support/Voxen/models`) and validated before use. All later loads are fully offline.
+- Silero VAD segments long recordings into short chunks; if VAD is unavailable, Voxen falls back to fixed 20-second windows. This is buffered push-to-talk transcription, not native streaming.
+- Parakeet auto-detects among 25 European languages, so the **Language** setting has no effect. Punctuation and capitalization come from the model.
+- `Device` selects the ONNX provider: CPU by default, CUDA (with CPU fallback) when explicitly set to `cuda`. `Compute type` is unused because the INT8 weights are pinned.
+- Cached weights can be removed with `ModelManager.delete_model("parakeet-tdt-v3")`.
+
+To compare engines or test Italian, English and mixed-language technical speech, see `scripts/benchmark_parakeet.py`. It reports cold start, warm latency, real-time factor, peak Python RAM and model disk size.
 
 ## Daily flow
 
@@ -68,7 +86,7 @@ The shortcut can be changed from the dashboard by pressing the desired key combi
 
 ## What is included
 
-- Local speech-to-text with `faster-whisper` and cached models.
+- Local speech-to-text with `faster-whisper` and cached models, plus optional NVIDIA Parakeet TDT v3 via ONNX Runtime.
 - Italian, English, Japanese, French, German, Spanish, and automatic language detection.
 - Microphone access only while the global shortcut is held.
 - Conservative cleanup for capitalization, whitespace, and final punctuation; existing punctuation is preserved.

@@ -8,8 +8,10 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from .stt import PARAKEET_MODEL
+
 CONFIG_VERSION = 1
-SUPPORTED_MODELS = ("tiny", "base", "small")
+SUPPORTED_MODELS = ("tiny", "base", "small", PARAKEET_MODEL)
 SUPPORTED_LANGUAGES = ("auto", "it", "en", "ja", "fr", "de", "es")
 
 # One predicate per field with a business rule beyond "matches the default's

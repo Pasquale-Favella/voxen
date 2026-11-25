@@ -29,6 +29,13 @@ def test_config_uses_defaults_for_invalid_or_unknown_values(tmp_path) -> None:
     assert not hasattr(config, "unknown")
 
 
+def test_config_accepts_parakeet_model(tmp_path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"model": "parakeet-tdt-v3"}), encoding="utf-8")
+
+    assert ConfigStore(path).load().model == "parakeet-tdt-v3"
+
+
 def test_config_reads_legacy_file_without_version(tmp_path) -> None:
     path = tmp_path / "config.json"
     path.write_text(json.dumps({"model": "tiny"}), encoding="utf-8")
