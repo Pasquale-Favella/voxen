@@ -30,15 +30,10 @@ _BAR_COUNT = 15
 _BOTTOM_MARGIN = 16
 _MAX_HEALS = 3
 
-_MODE_ACCENT = {
-    "listening": theme.ACCENT,
-    "processing": theme.TEXT_MUTED,
-}
-
-
 class RecordingOverlay:
-    def __init__(self, root: tk.Tk, level_provider: Callable[[], float]) -> None:
+    def __init__(self, root: tk.Tk, level_provider: Callable[[], float], palette: theme.Palette = theme.LIGHT) -> None:
         self._root = root
+        self._palette = palette
         self._level_provider = level_provider
         self._mode = "listening"
         self._phase = 0.0
@@ -61,13 +56,13 @@ class RecordingOverlay:
         self._native_region = False
         if sys.platform == "win32":
             try:
-                self._window.configure(bg=theme.OVERLAY_SHELL_BG)
+                self._window.configure(bg=self._palette.OVERLAY_SHELL_BG)
                 self._native_region = True
             except tk.TclError:
                 self._native_region = False
-        canvas_bg = theme.OVERLAY_SHELL_BG if self._native_region else theme.OVERLAY_BG
+        canvas_bg = self._palette.OVERLAY_SHELL_BG if self._native_region else self._palette.OVERLAY_SHELL_BG
         if not self._native_region:
-            self._window.configure(bg=theme.OVERLAY_BG)
+            self._window.configure(bg=self._palette.OVERLAY_SHELL_BG)
         self._canvas = tk.Canvas(self._window, width=_WIDTH, height=_HEIGHT, bg=canvas_bg, highlightthickness=0)
         self._canvas.pack()
         self._build_canvas_items()
@@ -104,36 +99,50 @@ class RecordingOverlay:
 
     def _build_canvas_items(self) -> None:
         canvas = self._canvas
-        rounded_rect(
+        self._shell_id = rounded_rect(
             canvas,
             1,
             1,
             _WIDTH - 1,
             _HEIGHT - 1,
             _RADIUS,
-            fill=theme.OVERLAY_SHELL_BG,
-            outline=theme.OVERLAY_SHELL_BORDER,
+            fill=self._palette.OVERLAY_SHELL_BG,
+            outline=self._palette.OVERLAY_SHELL_BORDER,
             width=1,
         )
         center_y = _HEIGHT / 2
         # Monochrome microphone glyph, drawn natively so it stays sharp at any DPI.
         x = 25
-        canvas.create_oval(x - 15, center_y - 15, x + 15, center_y + 15, fill=theme.ACCENT, outline="")
-        rounded_rect(canvas, x - 3, center_y - 8, x + 3, center_y + 3, 3, fill="#ffffff", outline="")
+        canvas.create_oval(x - 15, center_y - 15, x + 15, center_y + 15, fill=self._palette.ACCENT, outline="", tags="mic_bg")
+        rounded_rect(canvas, x - 3, center_y - 8, x + 3, center_y + 3, 3, fill=self._palette.ACCENT_DARK, outline="", tags="mic_fill")
         canvas.create_arc(x - 6, center_y - 5, x + 6, center_y + 7, start=180, extent=180,
-                          style="arc", outline="#ffffff", width=1.4)
-        canvas.create_line(x, center_y + 7, x, center_y + 10, fill="#ffffff", width=1.4)
-        canvas.create_line(x - 4, center_y + 10, x + 4, center_y + 10, fill="#ffffff", width=1.4, capstyle="round")
+                          style="arc", outline=self._palette.ACCENT_DARK, width=1.4, tags="mic_arc")
+        canvas.create_line(x, center_y + 7, x, center_y + 10, fill=self._palette.ACCENT_DARK, width=1.4, tags="mic_fill")
+        canvas.create_line(x - 4, center_y + 10, x + 4, center_y + 10, fill=self._palette.ACCENT_DARK, width=1.4, capstyle="round", tags="mic_fill")
 
         self._bar_ids = [
             canvas.create_line(self._bar_x(index), center_y, self._bar_x(index), center_y, width=2.2,
-                               capstyle="round", fill=theme.ACCENT)
+                               capstyle="round", fill=self._palette.ACCENT)
             for index in range(_BAR_COUNT)
         ]
-        canvas.create_line(169, 13, 169, _HEIGHT - 13, fill=theme.DIVIDER)
+        canvas.create_line(169, 13, 169, _HEIGHT - 13, fill=self._palette.DIVIDER, tags="divider")
         self._label_id = canvas.create_text(
-            203, center_y, fill=theme.OVERLAY_HINT, font=(theme.MONO_FAMILY, 9),
+            203, center_y, fill=self._palette.OVERLAY_HINT, font=(theme.MONO_FAMILY, 9),
         )
+
+    def set_palette(self, palette: theme.Palette) -> None:
+        self._palette = palette
+        self._window.configure(bg=palette.OVERLAY_SHELL_BG)
+        canvas = self._canvas
+        canvas.configure(bg=palette.OVERLAY_SHELL_BG)
+        canvas.itemconfigure(self._shell_id, fill=palette.OVERLAY_SHELL_BG, outline=palette.OVERLAY_SHELL_BORDER)
+        canvas.itemconfigure("mic_bg", fill=palette.ACCENT)
+        canvas.itemconfigure("mic_fill", fill=palette.ACCENT_DARK)
+        canvas.itemconfigure("mic_arc", outline=palette.ACCENT_DARK)
+        canvas.itemconfigure("divider", fill=palette.DIVIDER)
+        canvas.itemconfigure(self._label_id, fill=palette.OVERLAY_HINT)
+        for bar in self._bar_ids:
+            canvas.itemconfigure(bar, fill=palette.ACCENT if self._mode == "listening" else palette.TEXT_MUTED)
 
     @staticmethod
     def _bar_x(index: int) -> float:
@@ -287,7 +296,7 @@ class RecordingOverlay:
         self._heal_if_drifted()
         canvas = self._canvas
 
-        accent = _MODE_ACCENT[self._mode]
+        accent = self._palette.ACCENT if self._mode == "listening" else self._palette.TEXT_MUTED
         center_y = _HEIGHT / 2
 
         raw_level = max(0.0, min(1.0, float(self._level_provider())))
@@ -304,7 +313,7 @@ class RecordingOverlay:
             self._bar_heights[index] += (target_height - self._bar_heights[index]) * response
             height = self._bar_heights[index]
             x = self._bar_x(index)
-            color = theme.OVERLAY_BAR_BRIGHT if height > 13 else accent
+            color = self._palette.TEXT_PRIMARY if height > 13 else accent
             canvas.coords(self._bar_ids[index], x, center_y - height / 2, x, center_y + height / 2)
             canvas.itemconfigure(self._bar_ids[index], fill=color)
 

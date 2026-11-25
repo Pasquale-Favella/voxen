@@ -5,6 +5,7 @@ import queue
 import time
 import tkinter as tk
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from tkinter import ttk
 
 from .application import events as ev
@@ -36,11 +37,13 @@ class VoxenApp:
         self.root = root
         self.root.title("Voxen")
         self.root.minsize(MIN_WIDTH, MIN_HEIGHT)
-        self.root.configure(bg=theme.BACKGROUND)
-        theme.enable_light_titlebar(self.root)
-
         self.store = ConfigStore()
         self.config = self.store.load()
+        self.palette = theme.resolve_palette(self.config.appearance)
+        self._theme_widgets: list[tuple[tk.Widget, dict[str, str]]] = []
+        self._theme_poll_id: str | None = None
+        self.root.configure(bg=self.palette.SURFACE)
+        theme.apply_native_appearance(self.root, self.config.appearance, self.palette)
         self.dictation = DictationService(
             audio=AudioRecorder(self.config.sample_rate),
             transcriber=ModelManager(),
@@ -55,6 +58,7 @@ class VoxenApp:
         self.tray: SystemTray | None = None
         self.hotkey_capture: HotkeyCapture | None = None
 
+        self.appearance_var = tk.StringVar(value=self.config.appearance)
         self.status_var = tk.StringVar(value="Starting Voxen...")
         self.detail_var = tk.StringVar(value="Local transcription, ready when you are.")
         self.hotkey_var = tk.StringVar(value=self.config.hotkey)
@@ -74,7 +78,8 @@ class VoxenApp:
         self.model_var.trace_add("write", self._update_language_control)
         self._update_language_control()
         self._fit_window_to_content()
-        self.overlay = RecordingOverlay(self.root, level_provider=lambda: self.dictation.audio_level)
+        self.overlay = RecordingOverlay(self.root, level_provider=lambda: self.dictation.audio_level, palette=self.palette)
+        self._theme_poll_id = self.root.after(theme.APPEARANCE_POLL_MS, self._poll_system_appearance)
         self.root.withdraw()
         self._start_services()
         self.root.after(EVENT_POLL_MS, self._drain_events)
@@ -93,27 +98,27 @@ class VoxenApp:
             self.language_display_var.set(LANGUAGE_LABELS[self.language_var.get()])
 
     def _build_ui(self) -> None:
-        self.combo_popup_font = theme.apply(self.root)
-        content = tk.Frame(self.root, bg=theme.SURFACE)
+        self.combo_popup_font = theme.apply(self.root, self.palette)
+        content = self._themed(tk.Frame(self.root), bg="SURFACE")
         content.pack(fill="both", expand=True, padx=28, pady=24)
 
-        tk.Label(content, text="Voxen", bg=theme.SURFACE, fg=theme.TEXT_PRIMARY,
+        self._label(content, text="Voxen", foreground="TEXT_PRIMARY",
                  font=(theme.FONT_FAMILY, 28, "bold")).pack(anchor="w")
         tk.Label(content, text="Your voice, anywhere you type.", bg=theme.SURFACE,
                  fg=theme.TEXT_SECONDARY, font=(theme.FONT_FAMILY, 10)).pack(anchor="w", pady=(0, 22))
 
-        controls = tk.Frame(content, bg=theme.SURFACE)
+        controls = self._themed(tk.Frame(content), bg="SURFACE")
         controls.pack(fill="x")
         controls.columnconfigure(1, weight=1)
         self.hotkey_button = RoundedButton(
             controls, textvariable=self.hotkey_button_var, command=self._start_hotkey_capture,
-            bg=theme.BUTTON_BG, fg=theme.BUTTON_FG, active_bg=theme.BUTTON_ACTIVE_BG,
-            parent_bg=theme.SURFACE, width=158, height=38, radius=9,
+            bg=self.palette.BUTTON_BG, fg=self.palette.TEXT_PRIMARY, active_bg=self.palette.BUTTON_ACTIVE_BG,
+            parent_bg=self.palette.SURFACE, width=158, height=38, radius=9,
             font=(theme.FONT_FAMILY, 9, "bold"),
         )
         self.hotkey_button.grid(row=0, column=0, sticky="ew", padx=(0, 8))
         self.hotkey_capture = HotkeyCapture(self.hotkey_button, self.hotkey_var, self.hotkey_button_var,
-                                            self.hotkey_hint_var, self._on_hotkey_captured)
+                                            self.hotkey_hint_var, self._on_hotkey_captured, palette=self.palette)
         self.hotkey_button_var.trace_add("write", self._resize_hotkey_button)
 
         self.model_combo = ttk.Combobox(
@@ -131,46 +136,107 @@ class VoxenApp:
 
         # Secondary preferences stay out of the default layout; no settings page.
         more = ttk.Menubutton(controls, text="…", style="Voxen.TMenubutton", width=3, takefocus=True)
-        self.preferences_menu = tk.Menu(more, tearoff=False, bg=theme.SURFACE,
-                                        fg=theme.TEXT_PRIMARY, activebackground=theme.BUTTON_BG,
-                                        activeforeground=theme.TEXT_PRIMARY)
+        self.preferences_menu = self._themed(tk.Menu(more, tearoff=False),
+                                             bg="SURFACE", fg="TEXT_PRIMARY", activebackground="BUTTON_BG",
+                                             activeforeground="TEXT_PRIMARY", selectcolor="TEXT_PRIMARY")
         self.preferences_menu.add_checkbutton(label="Paste into active app", variable=self.auto_paste_var,
                                                command=self._mark_settings_changed)
         self.preferences_menu.add_checkbutton(label="Final punctuation", variable=self.punctuation_var,
                                                command=self._mark_settings_changed)
+        self.preferences_menu.add_separator()
+        self.appearance_menu = self._themed(tk.Menu(self.preferences_menu, tearoff=False),
+                                            bg="SURFACE", fg="TEXT_PRIMARY", activebackground="BUTTON_BG",
+                                            activeforeground="TEXT_PRIMARY", selectcolor="TEXT_PRIMARY")
+        for value, label in (("system", "System"), ("light", "Light"), ("dark", "Dark")):
+            self.appearance_menu.add_radiobutton(label=label, value=value, variable=self.appearance_var,
+                                                command=self._select_appearance)
+        self.preferences_menu.add_cascade(label="Appearance", menu=self.appearance_menu)
         more.configure(menu=self.preferences_menu)
         more.grid(row=0, column=3, sticky="ns")
 
-        tk.Label(content, textvariable=self.hotkey_hint_var, bg=theme.SURFACE, fg=theme.TEXT_MUTED,
+        self._label(content, textvariable=self.hotkey_hint_var, foreground="TEXT_MUTED",
                  font=(theme.FONT_FAMILY, 8), wraplength=440, justify="left").pack(anchor="w", pady=(5, 0))
         self._divider(content, pady=(15, 12))
 
-        footer = tk.Frame(content, bg=theme.SURFACE)
+        footer = self._themed(tk.Frame(content), bg="SURFACE")
         footer.pack(fill="x")
         footer.columnconfigure(0, weight=1)
-        state = tk.Frame(footer, bg=theme.SURFACE)
+        state = self._themed(tk.Frame(footer), bg="SURFACE")
         state.grid(row=0, column=0, sticky="w")
-        self.status_indicator = tk.Canvas(state, width=9, height=9, bg=theme.SURFACE, highlightthickness=0)
+        self.status_indicator = self._themed(tk.Canvas(state, width=9, height=9, highlightthickness=0), bg="SURFACE")
         self.status_indicator.pack(side="left", padx=(0, 6))
-        self.status_dot = self.status_indicator.create_oval(1, 1, 8, 8, outline="", fill=theme.TEXT_MUTED)
-        tk.Label(state, textvariable=self.status_var, bg=theme.SURFACE, fg=theme.TEXT_PRIMARY,
+        self.status_dot = self.status_indicator.create_oval(1, 1, 8, 8, outline="", fill=self.palette.TEXT_MUTED)
+        self._label(state, textvariable=self.status_var, foreground="TEXT_PRIMARY",
                  font=(theme.FONT_FAMILY, 9, "bold")).pack(side="left")
-        tk.Label(state, text="·  Local inference", bg=theme.SURFACE, fg=theme.TEXT_MUTED,
+        self._label(state, text="·  Local inference", foreground="TEXT_MUTED",
                  font=(theme.FONT_FAMILY, 9)).pack(side="left", padx=(5, 0))
         self.status_var.trace_add("write", self._update_status_indicator)
         self._update_status_indicator()
 
         self.save_button = ttk.Button(footer, text="Save settings", command=self._save_settings, style="Voxen.TButton")
         self.save_button.grid(row=0, column=1, rowspan=2, sticky="ne", padx=(12, 0))
-        detail = tk.Label(footer, textvariable=self.detail_var, bg=theme.SURFACE, fg=theme.STATUS_DETAIL,
+        detail = self._label(footer, textvariable=self.detail_var, foreground="TEXT_MUTED",
                           font=(theme.FONT_FAMILY, 8), wraplength=315, justify="left")
         detail.grid(row=1, column=0, sticky="w", pady=(3, 0))
         # Error messages may be longer than the normal one-line status.
         self.detail_var.trace_add("write", self._schedule_layout_fit)
         self.hotkey_hint_var.trace_add("write", self._schedule_layout_fit)
 
+    def _themed(self, widget, **roles):
+        widget.configure(**{option: getattr(self.palette, role) for option, role in roles.items()})
+        self._theme_widgets.append((widget, roles))
+        return widget
+
+    def _label(self, parent, *, foreground: str, **kwargs):
+        return self._themed(tk.Label(parent, **kwargs), bg="SURFACE", fg=foreground)
+
+    def _select_appearance(self) -> None:
+        preference = self.appearance_var.get()
+        if preference == self.config.appearance:
+            return
+        # Appearance is independent of pending STT settings. Persist immediately
+        # without mutating the shared configuration until the write succeeds.
+        try:
+            self.store.save(replace(self.config, appearance=preference))
+        except OSError as exc:
+            self.appearance_var.set(self.config.appearance)
+            self.detail_var.set(f"Could not save appearance: {exc}")
+            return
+        self.config.appearance = preference
+        self._apply_appearance(theme.resolve_palette(preference, self.palette))
+
+    def _apply_appearance(self, palette: theme.Palette) -> None:
+        self.palette = palette
+        self.root.configure(bg=palette.SURFACE)
+        theme.apply_native_appearance(self.root, self.config.appearance, palette)
+        theme.apply(self.root, palette, self.combo_popup_font)
+        for widget, roles in self._theme_widgets:
+            widget.configure(**{option: getattr(palette, role) for option, role in roles.items()})
+        self.hotkey_capture.set_palette(palette)
+        self.hotkey_button.configure(bg=palette.SURFACE)
+        self._update_status_indicator()
+        self.overlay.set_palette(palette)
+        # A previously opened ttk popup already has a listbox instance.
+        for combo in (self.model_combo, self.language_combo):
+            popup = self.root.tk.call("ttk::combobox::PopdownWindow", str(combo))
+            self.root.tk.call(popup + ".f.l", "configure", "-background", palette.COMBO_FIELD_BG,
+                              "-foreground", palette.TEXT_PRIMARY, "-selectbackground", palette.BUTTON_BG,
+                              "-selectforeground", palette.TEXT_PRIMARY)
+
+    def _poll_system_appearance(self) -> None:
+        self._theme_poll_id = None
+        if self.state is AppState.CLOSING:
+            return
+        try:
+            if self.config.appearance == "system":
+                palette = theme.resolve_palette("system", self.palette)
+                if palette != self.palette:
+                    self._apply_appearance(palette)
+        finally:
+            self._theme_poll_id = self.root.after(theme.APPEARANCE_POLL_MS, self._poll_system_appearance)
+
     def _update_status_indicator(self, *_args) -> None:
-        color = {"Ready": theme.SUCCESS, "Error": theme.ERROR}.get(self.status_var.get(), theme.TEXT_MUTED)
+        color = {"Ready": self.palette.SUCCESS, "Error": self.palette.ERROR}.get(self.status_var.get(), self.palette.TEXT_MUTED)
         self.status_indicator.itemconfigure(self.status_dot, fill=color)
 
     def _resize_hotkey_button(self, *_args) -> None:
@@ -207,9 +273,8 @@ class VoxenApp:
         except tk.TclError:
             self.root.geometry("540x260")
 
-    @staticmethod
-    def _divider(parent: tk.Widget, *, pady) -> tk.Frame:
-        line = tk.Frame(parent, bg=theme.DIVIDER, height=1)
+    def _divider(self, parent: tk.Widget, *, pady) -> tk.Frame:
+        line = self._themed(tk.Frame(parent, height=1), bg="DIVIDER")
         line.pack(fill="x", pady=pady)
         return line
 
@@ -464,6 +529,9 @@ class VoxenApp:
     def close(self) -> None:
         if self.state is AppState.CLOSING:
             return
+        if getattr(self, "_theme_poll_id", None) is not None:
+            self.root.after_cancel(self._theme_poll_id)
+            self._theme_poll_id = None
         try:
             if self.hotkey is not None:
                 self.hotkey.stop()

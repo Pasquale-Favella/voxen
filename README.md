@@ -67,6 +67,10 @@ Parakeet is installed with Voxen and selected on a fresh configuration. Existing
 
 To compare engines or test Italian, English and mixed-language technical speech, see `scripts/benchmark_parakeet.py`. Install the dev extra as well. It reports first load (which may include download), cached reload, warm p50/p95 latency, real-time factor, sampled process RSS and model disk size. Use `--wav it.wav en.wav mixed.wav --reference it.txt en.txt mixed.txt` for transcripts and normalized WER/CER. Run each engine in a separate process.
 
+## Appearance
+
+Voxen follows the system application theme by default on Windows and macOS. Open the **…** menu → **Appearance** to select **System**, **Light**, or **Dark**. The choice applies immediately to the dashboard and floating recording pill and is saved independently of transcription settings. In System mode the app checks for OS appearance changes every two seconds. If the system preference is unavailable, Voxen retains the current palette (light at first launch).
+
 ## Daily flow
 
 1. Place the cursor in any text field.
