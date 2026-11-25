@@ -6,6 +6,6 @@ if [[ ! -x .venv/bin/python ]]; then
 fi
 
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e '.[dev]'
+.venv/bin/python -m pip install -e '.[dev,parakeet]'
 .venv/bin/python scripts/create_assets.py
 .venv/bin/python scripts/build.py
