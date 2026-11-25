@@ -1,7 +1,7 @@
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/voxen-mark-dark.png">
-    <img src="assets/voxen-mark.png" alt="Voxen" width="112">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/voxen-mark-dark.svg">
+    <img src="assets/voxen-mark.svg" alt="Voxen" width="112">
   </picture>
 
   <h1>Voxen</h1>
