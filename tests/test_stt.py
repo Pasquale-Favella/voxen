@@ -11,11 +11,11 @@ from voxen.stt import (
     PARAKEET_ASR_NAME,
     PARAKEET_MODEL,
     PARAKEET_REVISION,
-    _ensure_files,
     FasterWhisperEngine,
     ModelConfig,
     ModelManager,
     ParakeetEngine,
+    _ensure_files,
     _resolve_compute_type,
     default_engine_factory,
 )
@@ -225,7 +225,8 @@ def _install_fake_onnx_asr(monkeypatch, tmp_path, model, *, cached: bool, vad: b
     state: dict = {"loads": [], "vads": [], "offline": []}
 
     def ensure(directory, repository, revision, manifest, *, offline=False):
-        state["offline"].append(Path(directory).exists()) if repository.endswith("parakeet-tdt-0.6b-v3-onnx") else None
+        if repository.endswith("parakeet-tdt-0.6b-v3-onnx"):
+            state["offline"].append(Path(directory).exists())
         state.setdefault("downloads", []).append((repository, revision, tuple(manifest)))
         if vad_fails and repository.endswith("silero-vad-onnx"):
             raise RuntimeError("VAD download failed")
