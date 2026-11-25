@@ -218,10 +218,15 @@ class VoxenApp:
         self.overlay.set_palette(palette)
         # A previously opened ttk popup already has a listbox instance.
         for combo in (self.model_combo, self.language_combo):
-            popup = self.root.tk.call("ttk::combobox::PopdownWindow", str(combo))
-            self.root.tk.call(popup + ".f.l", "configure", "-background", palette.COMBO_FIELD_BG,
-                              "-foreground", palette.TEXT_PRIMARY, "-selectbackground", palette.BUTTON_BG,
-                              "-selectforeground", palette.TEXT_PRIMARY)
+            try:
+                popup = str(self.root.tk.call("ttk::combobox::PopdownWindow", str(combo)))
+                self.root.tk.call(popup + ".f.l", "configure", "-background", palette.COMBO_FIELD_BG,
+                                  "-foreground", palette.TEXT_PRIMARY, "-selectbackground", palette.BUTTON_BG,
+                                  "-selectforeground", palette.TEXT_PRIMARY)
+            except tk.TclError:
+                # Tk versions may use a different native popdown structure.
+                # The option database above still covers newly created popups.
+                pass
 
     def _poll_system_appearance(self) -> None:
         self._theme_poll_id = None

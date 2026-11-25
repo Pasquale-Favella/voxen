@@ -61,7 +61,7 @@ def read_system_appearance() -> str | None:
 
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
                 value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-            return "dark" if value == 0 else "light"
+            return {0: "dark", 1: "light"}.get(value)
         if sys.platform == "darwin":
             from CoreFoundation import (
                 CFPreferencesCopyValue,
@@ -75,7 +75,7 @@ def read_system_appearance() -> str | None:
             CFPreferencesSynchronize(*scope)
             value = CFPreferencesCopyValue("AppleInterfaceStyle", *scope)
             return "dark" if value == "Dark" else "light"
-    except (ImportError, OSError, AttributeError, RuntimeError):
+    except (ImportError, OSError, AttributeError, RuntimeError, TypeError, ValueError):
         return None
     return None
 

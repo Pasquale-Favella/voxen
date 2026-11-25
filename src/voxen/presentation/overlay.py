@@ -30,6 +30,7 @@ _BAR_COUNT = 15
 _BOTTOM_MARGIN = 16
 _MAX_HEALS = 3
 
+
 class RecordingOverlay:
     def __init__(self, root: tk.Tk, level_provider: Callable[[], float], palette: theme.Palette = theme.LIGHT) -> None:
         self._root = root
@@ -53,17 +54,9 @@ class RecordingOverlay:
         self._window.resizable(False, False)
         self._window.attributes("-topmost", True)
 
-        self._native_region = False
-        if sys.platform == "win32":
-            try:
-                self._window.configure(bg=self._palette.OVERLAY_SHELL_BG)
-                self._native_region = True
-            except tk.TclError:
-                self._native_region = False
-        canvas_bg = self._palette.OVERLAY_SHELL_BG if self._native_region else self._palette.OVERLAY_SHELL_BG
-        if not self._native_region:
-            self._window.configure(bg=self._palette.OVERLAY_SHELL_BG)
-        self._canvas = tk.Canvas(self._window, width=_WIDTH, height=_HEIGHT, bg=canvas_bg, highlightthickness=0)
+        self._window.configure(bg=self._palette.OVERLAY_SHELL_BG)
+        self._native_region = sys.platform == "win32"
+        self._canvas = tk.Canvas(self._window, width=_WIDTH, height=_HEIGHT, bg=self._palette.OVERLAY_SHELL_BG, highlightthickness=0)
         self._canvas.pack()
         self._build_canvas_items()
         try:
