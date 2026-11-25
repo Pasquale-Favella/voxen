@@ -42,10 +42,8 @@ def main() -> None:
     run([sys.executable, "-c", "from onnx_asr.loader import Manager; import onnxruntime"])
     for package in ("onnx_asr", "onnxruntime"):
         command += ["--collect-all", package]
-    command += [
-        "--add-data",
-        f"{ROOT / 'assets' / 'voxen-mark.png'}{data_separator}assets",
-    ]
+    for asset in ("voxen-mark.png", "voxen-mark-dark.png", "voxen-system.png"):
+        command += ["--add-data", f"{ROOT / 'assets' / asset}{data_separator}assets"]
     if sys.platform == "win32":
         command += [
             "--icon",
@@ -57,6 +55,8 @@ def main() -> None:
         ]
     else:
         command += [
+            "--icon",
+            str(ROOT / "assets" / "voxen.icns"),
             "--hidden-import",
             "pystray._darwin",
             "--hidden-import",

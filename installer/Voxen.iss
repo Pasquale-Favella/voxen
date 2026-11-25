@@ -12,6 +12,7 @@ DefaultDirName={autopf}\Voxen
 DefaultGroupName={#MyAppName}
 OutputDir=..\dist\installer
 OutputBaseFilename=Voxen-Setup-{#MyAppVersion}
+SetupIconFile=..\assets\voxen.ico
 Compression=lzma
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible

@@ -1,5 +1,8 @@
 <p align="center">
-	<img src="assets/voxen-mark.svg" alt="Voxen mark" width="132">
+	<picture>
+		<source media="(prefers-color-scheme: dark)" srcset="assets/voxen-mark-dark.png">
+		<img src="assets/voxen-mark.png" alt="Voxen waveform monogram" width="132">
+	</picture>
 </p>
 
 <h1 align="center">Voxen</h1>
@@ -132,7 +135,7 @@ This creates a portable `dist\Voxen\` folder. If Inno Setup is installed, it als
 
 This creates `dist/Voxen.app` and `dist/Voxen-macos.dmg`. The same builds can run through the GitHub Actions workflow on tags or manual dispatch.
 
-The build pipeline regenerates `assets/voxen-mark.png` and `assets/voxen.ico` from `assets/voxen-mark.svg`, keeping the dashboard, tray, and application icon visually aligned.
+The build pipeline regenerates transparent light/dark marks and contrast-outlined system icons (PNG, ICO, ICNS) from `assets/voxen-mark.svg`. The dashboard mark follows the selected appearance; the tray and installer icons remain legible against light and dark system surfaces.
 
 ## Project map
 

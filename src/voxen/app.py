@@ -15,6 +15,7 @@ from .config import SUPPORTED_LANGUAGES, SUPPORTED_MODELS, ConfigStore
 from .domain.state import AppState
 from .domain.text import TextProcessor
 from .hotkey import GlobalHotkey
+from .infrastructure.resources import asset_path
 from .injector import ClipboardInjector
 from .presentation import theme
 from .presentation.hotkey_capture import HotkeyCapture
@@ -102,8 +103,13 @@ class VoxenApp:
         content = self._themed(tk.Frame(self.root), bg="SURFACE")
         content.pack(fill="both", expand=True, padx=28, pady=24)
 
-        self._label(content, text="Voxen", foreground="TEXT_PRIMARY",
-                 font=(theme.FONT_FAMILY, 28, "bold")).pack(anchor="w")
+        brand = self._themed(tk.Frame(content), bg="SURFACE")
+        brand.pack(anchor="w")
+        self.brand_mark = self._themed(tk.Label(brand, borderwidth=0, highlightthickness=0), bg="SURFACE")
+        self.brand_mark.pack(side="left", padx=(0, 10))
+        self._label(brand, text="Voxen", foreground="TEXT_PRIMARY",
+                 font=(theme.FONT_FAMILY, 28, "bold")).pack(side="left")
+        self._update_brand_mark()
         self._label(content, text="Your voice, anywhere you type.",
                  foreground="TEXT_SECONDARY", font=(theme.FONT_FAMILY, 10)).pack(anchor="w", pady=(0, 22))
 
@@ -182,6 +188,28 @@ class VoxenApp:
         self.detail_var.trace_add("write", self._schedule_layout_fit)
         self.hotkey_hint_var.trace_add("write", self._schedule_layout_fit)
 
+    def _update_brand_mark(self) -> None:
+        """Use the same transparent monogram in both themes and native chrome."""
+        from PIL import Image, ImageTk
+
+        asset = "voxen-mark-dark.png" if self.palette.name == "dark" else "voxen-mark.png"
+        try:
+            with Image.open(asset_path(asset)) as source:
+                mark = source.convert("RGBA")
+            native = mark.resize((32, 32), Image.Resampling.LANCZOS)
+            self._window_icon = ImageTk.PhotoImage(native, master=self.root)
+            self.root.iconphoto(True, self._window_icon)
+            # Trim transparent padding for the horizontal brand lockup, not
+            # for the square native icon.
+            bounds = mark.getbbox()
+            if bounds is not None:
+                mark = mark.crop(bounds)
+            mark.thumbnail((54, 32), Image.Resampling.LANCZOS)
+            self._brand_photo = ImageTk.PhotoImage(mark, master=self.root)
+            self.brand_mark.configure(image=self._brand_photo)
+        except (OSError, RuntimeError, tk.TclError) as exc:
+            logger.warning("Could not load Voxen brand mark: %s", exc)
+
     def _themed(self, widget, **roles):
         widget.configure(**{option: getattr(self.palette, role) for option, role in roles.items()})
         self._theme_widgets.append((widget, roles))
@@ -212,6 +240,7 @@ class VoxenApp:
         theme.apply(self.root, palette, self.combo_popup_font)
         for widget, roles in self._theme_widgets:
             widget.configure(**{option: getattr(palette, role) for option, role in roles.items()})
+        self._update_brand_mark()
         self.hotkey_capture.set_palette(palette)
         self.hotkey_button.configure(bg=palette.SURFACE)
         self._update_status_indicator()

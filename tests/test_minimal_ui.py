@@ -67,7 +67,10 @@ def test_dark_appearance_applies_to_open_widgets_and_persists(dashboard):
     app.overlay.show("listening")
     app.root.update()
     app.overlay.set_elapsed_seconds(7)
+    light_brand = str(app._brand_photo)
     app.appearance_menu.invoke(2)
+    assert str(app._brand_photo) != light_brand
+    assert app.brand_mark.cget("image") == str(app._brand_photo)
     assert app.config.appearance == "dark"
     assert app.store.load().appearance == "dark"
     assert app.palette == theme.DARK

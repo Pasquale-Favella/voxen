@@ -21,11 +21,12 @@ class SystemTray:
         except ImportError as exc:
             raise RuntimeError("Install pystray and Pillow to use the system tray.") from exc
 
-        icon_path = asset_path("voxen-mark.png")
+        icon_path = asset_path("voxen-system.png")
         if not icon_path.exists():
             raise RuntimeError(f"Tray asset not found: {icon_path}")
         try:
-            image = Image.open(icon_path)
+            with Image.open(icon_path) as source:
+                image = source.convert("RGBA")
             menu = pystray.Menu(
                 pystray.MenuItem("Open Voxen", lambda _icon, _item: self.on_open()),
                 pystray.MenuItem("Pause / Resume", lambda _icon, _item: self.on_pause()),
