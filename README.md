@@ -69,7 +69,7 @@ Select `parakeet-tdt-v3` in the **Model** dropdown and save. Notes:
 - Model attribution: [NVIDIA Parakeet TDT v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), ONNX conversion and INT8 quantization by [istupakov](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Silero VAD is [MIT licensed](https://huggingface.co/istupakov/silero-vad-onnx/blob/main/LICENSE.txt).
 - Cached weights can be removed with `ModelManager.delete_model("parakeet-tdt-v3")`.
 
-To compare engines or test Italian, English and mixed-language technical speech, see `scripts/benchmark_parakeet.py`. It reports cold start, warm latency, real-time factor, peak Python RAM and model disk size.
+To compare engines or test Italian, English and mixed-language technical speech, see `scripts/benchmark_parakeet.py`. Install the dev extra as well. It reports first load (which may include download), cached reload, warm p50/p95 latency, real-time factor, sampled process RSS and model disk size. Use `--wav it.wav en.wav mixed.wav --reference it.txt en.txt mixed.txt` for transcripts and normalized WER/CER. Run each engine in a separate process.
 
 ## Daily flow
 
