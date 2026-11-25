@@ -45,7 +45,7 @@ _FIELD_VALIDATORS: dict[str, Callable[[object], bool]] = {
 @dataclass
 class AppConfig:
     hotkey: str = "cmd+shift+space" if sys.platform == "darwin" else "ctrl+space"
-    model: str = "base"
+    model: str = PARAKEET_MODEL
     language: str = "auto"
     device: str = "auto"
     compute_type: str = "int8"
