@@ -53,6 +53,7 @@ class RoundedButton(tk.Canvas):
         width: int = 180,
         height: int = 40,
         font: tuple | None = None,
+        radius: float | None = None,
     ) -> None:
         super().__init__(parent, width=width, height=height, bg=parent_bg, highlightthickness=0)
         self._command = command
@@ -62,6 +63,7 @@ class RoundedButton(tk.Canvas):
         self._fg = fg
         self._active_bg = active_bg
         self._font = font or (theme.FONT_FAMILY, 10, "bold")
+        self._radius = radius
         self._hover = False
         if textvariable is not None:
             textvariable.trace_add("write", lambda *_: self._redraw())
@@ -100,7 +102,7 @@ class RoundedButton(tk.Canvas):
         if width <= 1 or height <= 1:
             width, height = int(self["width"]), int(self["height"])
         fill = self._active_bg if self._hover else self._bg
-        rounded_rect(self, 1, 1, width - 1, height - 1, height / 2, fill=fill, outline="")
+        rounded_rect(self, 1, 1, width - 1, height - 1, min(self._radius, height / 2) if self._radius is not None else height / 2, fill=fill, outline="")
         self.create_text(width / 2, height / 2, text=self._label(), fill=self._fg, font=self._font)
 
 

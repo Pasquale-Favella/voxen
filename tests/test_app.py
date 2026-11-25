@@ -631,7 +631,7 @@ def test_fit_window_to_content_respects_minimum_size() -> None:
 
     app._fit_window_to_content()
 
-    assert app.root.geometry_spec == "500x460"
+    assert app.root.geometry_spec == "500x220"
 
 
 def test_fit_window_to_content_clamps_to_screen() -> None:

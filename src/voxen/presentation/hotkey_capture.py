@@ -46,8 +46,8 @@ class HotkeyCapture:
     def begin(self) -> None:
         self._keys_down = set()
         self.capturing = True
-        self._button_var.set("PRESS YOUR COMBINATION")
-        self._hint_var.set("For example: hold Ctrl and press Space")
+        self._button_var.set("Press shortcut")
+        self._hint_var.set("Hold a modifier, then press a key")
         self._button.set_colors(bg=theme.CAPTURE_BG, fg=theme.CAPTURE_FG, active_bg=theme.CAPTURE_ACTIVE_BG)
         self._button.focus_set()
         self._binding = self._button.bind("<KeyPress>", self._on_key_press, add="+")
@@ -57,7 +57,7 @@ class HotkeyCapture:
         self._keys_down = set()
         self._hotkey_var.set(revert_to)
         self._button_var.set(self.display_text(revert_to))
-        self._hint_var.set("Click the button, then press your key combination")
+        self._hint_var.set("Click shortcut to change it")
         self._on_change(revert_to)
 
     def _on_key_press(self, event: tk.Event) -> str:

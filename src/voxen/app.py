@@ -14,16 +14,19 @@ from .config import SUPPORTED_LANGUAGES, SUPPORTED_MODELS, ConfigStore
 from .domain.state import AppState
 from .domain.text import TextProcessor
 from .hotkey import GlobalHotkey
-from .infrastructure.resources import asset_path
 from .injector import ClipboardInjector
 from .presentation import theme
 from .presentation.hotkey_capture import HotkeyCapture
 from .presentation.overlay import RecordingOverlay
-from .presentation.shapes import Checkbox, RoundedButton
+from .presentation.shapes import RoundedButton
 from .stt import ModelManager, is_parakeet_model
 from .tray import SystemTray
 
 EVENT_POLL_MS = 25
+MIN_WIDTH = 500
+MIN_HEIGHT = 220
+MODEL_LABELS = dict(zip(SUPPORTED_MODELS, ("Whisper Tiny", "Whisper Base", "Whisper Small", "Parakeet v3"), strict=True))
+LANGUAGE_LABELS = dict(zip(SUPPORTED_LANGUAGES, ("Auto", "Italian", "English", "Japanese", "French", "German", "Spanish"), strict=True))
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +35,9 @@ class VoxenApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Voxen")
-        self.root.minsize(500, 460)
+        self.root.minsize(MIN_WIDTH, MIN_HEIGHT)
         self.root.configure(bg=theme.BACKGROUND)
-        theme.enable_dark_titlebar(self.root)
+        theme.enable_light_titlebar(self.root)
 
         self.store = ConfigStore()
         self.config = self.store.load()
@@ -60,7 +63,9 @@ class VoxenApp:
         self.auto_paste_var = tk.BooleanVar(value=self.config.auto_paste)
         self.punctuation_var = tk.BooleanVar(value=self.config.punctuation)
         self.hotkey_button_var = tk.StringVar(value=HotkeyCapture.display_text(self.config.hotkey))
-        self.hotkey_hint_var = tk.StringVar(value="Click the button, then press your key combination")
+        self.hotkey_hint_var = tk.StringVar(value="Click shortcut to change it")
+        self.model_display_var = tk.StringVar(value=MODEL_LABELS[self.config.model])
+        self.language_display_var = tk.StringVar(value=LANGUAGE_LABELS[self.config.language])
         self.model_combo: ttk.Combobox | None = None
         self.language_combo: ttk.Combobox | None = None
         self.started_at = 0.0
@@ -85,126 +90,105 @@ class VoxenApp:
             self.language_combo.configure(state="disabled" if automatic else "readonly")
             if automatic:
                 self.language_var.set("auto")
+            self.language_display_var.set(LANGUAGE_LABELS[self.language_var.get()])
 
     def _build_ui(self) -> None:
         self.combo_popup_font = theme.apply(self.root)
+        content = tk.Frame(self.root, bg=theme.SURFACE)
+        content.pack(fill="both", expand=True, padx=28, pady=24)
 
-        container = tk.Frame(self.root, bg=theme.SURFACE)
-        container.pack(fill="both", expand=True)
-        content = tk.Frame(container, bg=theme.SURFACE)
-        content.pack(fill="both", expand=True, padx=32, pady=30)
-
-        header = tk.Frame(content, bg=theme.SURFACE)
-        header.pack(fill="x")
-        try:
-            from PIL import Image, ImageTk
-            brand_image = Image.open(asset_path("voxen-mark.png")).resize((36, 36), Image.Resampling.LANCZOS)
-            self.brand_photo = ImageTk.PhotoImage(brand_image)
-            brand = tk.Label(header, image=self.brand_photo, bg=theme.SURFACE, borderwidth=0)
-        except (ImportError, FileNotFoundError):
-            brand = tk.Canvas(header, width=36, height=36, bg=theme.SURFACE, highlightthickness=0)
-            brand.create_oval(3, 3, 33, 33, fill=theme.ACCENT, outline="")
-            brand.create_oval(13, 13, 23, 23, fill=theme.SURFACE, outline="")
-        brand.pack(side="left", padx=(0, 12))
-        title_block = tk.Frame(header, bg=theme.SURFACE)
-        title_block.pack(side="left")
-        tk.Label(title_block, text="Voxen", bg=theme.SURFACE, fg=theme.TEXT_PRIMARY, font=(theme.FONT_FAMILY, 22, "bold")).pack(anchor="w")
-        tk.Label(title_block, text="Local · private · your voice anywhere you type", bg=theme.SURFACE, fg=theme.TEXT_SECONDARY, font=(theme.FONT_FAMILY, 9)).pack(anchor="w")
-
-        self._divider(content, pady=(22, 16))
-
-        status_row = tk.Frame(content, bg=theme.SURFACE)
-        status_row.pack(fill="x")
-        status_indicator = tk.Canvas(status_row, width=10, height=10, bg=theme.SURFACE, highlightthickness=0)
-        status_indicator.pack(side="left", padx=(0, 10))
-        status_indicator.create_oval(1, 1, 9, 9, fill=theme.ACCENT, outline="")
-        status_text = tk.Frame(status_row, bg=theme.SURFACE)
-        status_text.pack(side="left", fill="x", expand=True)
-        tk.Label(status_text, textvariable=self.status_var, bg=theme.SURFACE, fg=theme.TEXT_PRIMARY, font=(theme.FONT_FAMILY, 12, "bold")).pack(anchor="w")
-        tk.Label(status_text, textvariable=self.detail_var, bg=theme.SURFACE, fg=theme.STATUS_DETAIL, font=(theme.FONT_FAMILY, 9)).pack(anchor="w", pady=(1, 0))
-        tk.Label(status_row, textvariable=self.hotkey_var, bg=theme.SURFACE, fg=theme.HOTKEY_LABEL, font=(theme.MONO_FAMILY, 8)).pack(side="right")
-
-        self._divider(content, pady=(18, 20))
+        tk.Label(content, text="Voxen", bg=theme.SURFACE, fg=theme.TEXT_PRIMARY,
+                 font=(theme.FONT_FAMILY, 28, "bold")).pack(anchor="w")
+        tk.Label(content, text="Your voice, anywhere you type.", bg=theme.SURFACE,
+                 fg=theme.TEXT_SECONDARY, font=(theme.FONT_FAMILY, 10)).pack(anchor="w", pady=(0, 22))
 
         controls = tk.Frame(content, bg=theme.SURFACE)
         controls.pack(fill="x")
         controls.columnconfigure(1, weight=1)
-        tk.Label(controls, text="QUICK SETTINGS", bg=theme.SURFACE, fg=theme.TEXT_MUTED, font=(theme.FONT_FAMILY, 8, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 14))
-        tk.Label(controls, text="Hotkey", bg=theme.SURFACE, fg=theme.LABEL_MUTED, font=(theme.FONT_FAMILY, 9)).grid(row=1, column=0, sticky="w", pady=8)
-        hotkey_area = tk.Frame(controls, bg=theme.SURFACE)
-        hotkey_area.grid(row=1, column=1, sticky="ew", pady=8)
-        hotkey_area.columnconfigure(0, weight=1)
         self.hotkey_button = RoundedButton(
-            hotkey_area,
-            textvariable=self.hotkey_button_var,
-            command=self._start_hotkey_capture,
-            bg=theme.BUTTON_BG,
-            fg=theme.BUTTON_FG,
-            active_bg=theme.BUTTON_ACTIVE_BG,
-            parent_bg=theme.SURFACE,
-            width=220,
-            height=36,
-            font=(theme.MONO_FAMILY, 10, "bold"),
+            controls, textvariable=self.hotkey_button_var, command=self._start_hotkey_capture,
+            bg=theme.BUTTON_BG, fg=theme.BUTTON_FG, active_bg=theme.BUTTON_ACTIVE_BG,
+            parent_bg=theme.SURFACE, width=158, height=38, radius=9,
+            font=(theme.FONT_FAMILY, 9, "bold"),
         )
-        self.hotkey_button.grid(row=0, column=0, sticky="ew")
-        tk.Label(hotkey_area, textvariable=self.hotkey_hint_var, bg=theme.SURFACE, fg=theme.HINT_MUTED, font=(theme.FONT_FAMILY, 8)).grid(row=1, column=0, sticky="w", pady=(5, 0))
-        self.hotkey_capture = HotkeyCapture(self.hotkey_button, self.hotkey_var, self.hotkey_button_var, self.hotkey_hint_var, self._on_hotkey_captured)
+        self.hotkey_button.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.hotkey_capture = HotkeyCapture(self.hotkey_button, self.hotkey_var, self.hotkey_button_var,
+                                            self.hotkey_hint_var, self._on_hotkey_captured)
+        self.hotkey_button_var.trace_add("write", self._resize_hotkey_button)
 
-        model_lang_row = tk.Frame(controls, bg=theme.SURFACE)
-        model_lang_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=8)
-        model_lang_row.columnconfigure(1, weight=1)
-        model_lang_row.columnconfigure(3, weight=1)
-        for column, label, variable, values, attribute in (
-            (0, "Model", self.model_var, SUPPORTED_MODELS, "model_combo"),
-            (2, "Language", self.language_var, SUPPORTED_LANGUAGES, "language_combo"),
-        ):
-            tk.Label(model_lang_row, text=label, bg=theme.SURFACE, fg=theme.LABEL_MUTED, font=(theme.FONT_FAMILY, 9)).grid(row=0, column=column, sticky="w", padx=(0 if column == 0 else 24, 10))
-            combo = ttk.Combobox(
-                model_lang_row,
-                textvariable=variable,
-                values=values,
-                state="readonly",
-                takefocus=True,
-                style="Voxen.TCombobox",
-            )
-            combo.bind("<<ComboboxSelected>>", self._on_combo_selected)
-            setattr(self, attribute, combo)
-            combo.grid(row=0, column=column + 1, sticky="ew")
-        checks = tk.Frame(controls, bg=theme.SURFACE)
-        checks.grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
-        for text, variable in (
-            ("Paste into active app", self.auto_paste_var),
-            ("Final punctuation", self.punctuation_var),
-        ):
-            Checkbox(
-                checks,
-                text=text,
-                variable=variable,
-                accent=theme.ACCENT,
-                text_fg=theme.LABEL_MUTED,
-                box_off_bg=theme.SURFACE,
-                box_border=theme.COMBO_BORDER,
-                check_fg=theme.ACCENT_DARK,
-                parent_bg=theme.SURFACE,
-            ).pack(side="left", padx=(0, 24))
+        self.model_combo = ttk.Combobox(
+            controls, textvariable=self.model_display_var, values=tuple(MODEL_LABELS.values()),
+            state="readonly", width=15, style="Voxen.TCombobox",
+        )
+        self.model_combo.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        self.model_combo.bind("<<ComboboxSelected>>", self._on_combo_selected)
+        self.language_combo = ttk.Combobox(
+            controls, textvariable=self.language_display_var, values=tuple(LANGUAGE_LABELS.values()),
+            state="readonly", width=8, style="Voxen.TCombobox",
+        )
+        self.language_combo.grid(row=0, column=2, sticky="ew", padx=(0, 8))
+        self.language_combo.bind("<<ComboboxSelected>>", self._on_combo_selected)
 
-        self._divider(content, pady=(22, 18))
+        # Secondary preferences stay out of the default layout; no settings page.
+        more = ttk.Menubutton(controls, text="…", style="Voxen.TMenubutton", width=3, takefocus=True)
+        self.preferences_menu = tk.Menu(more, tearoff=False, bg=theme.SURFACE,
+                                        fg=theme.TEXT_PRIMARY, activebackground=theme.BUTTON_BG,
+                                        activeforeground=theme.TEXT_PRIMARY)
+        self.preferences_menu.add_checkbutton(label="Paste into active app", variable=self.auto_paste_var,
+                                               command=self._mark_settings_changed)
+        self.preferences_menu.add_checkbutton(label="Final punctuation", variable=self.punctuation_var,
+                                               command=self._mark_settings_changed)
+        more.configure(menu=self.preferences_menu)
+        more.grid(row=0, column=3, sticky="ns")
 
-        actions = tk.Frame(content, bg=theme.SURFACE)
-        actions.pack(fill="x")
-        RoundedButton(
-            actions,
-            text="Save settings",
-            command=self._save_settings,
-            bg=theme.ACCENT,
-            fg=theme.ACCENT_DARK,
-            active_bg=theme.ACCENT_SOFT,
-            parent_bg=theme.SURFACE,
-            width=150,
-            height=38,
-            font=(theme.FONT_FAMILY, 10, "bold"),
-        ).pack(side="left")
-        tk.Label(content, text="Model downloads only on first use — inference stays on this machine", bg=theme.SURFACE, fg=theme.TEXT_MUTED, font=(theme.FONT_FAMILY, 8)).pack(anchor="w", pady=(14, 0))
+        tk.Label(content, textvariable=self.hotkey_hint_var, bg=theme.SURFACE, fg=theme.TEXT_MUTED,
+                 font=(theme.FONT_FAMILY, 8), wraplength=440, justify="left").pack(anchor="w", pady=(5, 0))
+        self._divider(content, pady=(15, 12))
+
+        footer = tk.Frame(content, bg=theme.SURFACE)
+        footer.pack(fill="x")
+        footer.columnconfigure(0, weight=1)
+        state = tk.Frame(footer, bg=theme.SURFACE)
+        state.grid(row=0, column=0, sticky="w")
+        self.status_indicator = tk.Canvas(state, width=9, height=9, bg=theme.SURFACE, highlightthickness=0)
+        self.status_indicator.pack(side="left", padx=(0, 6))
+        self.status_dot = self.status_indicator.create_oval(1, 1, 8, 8, outline="", fill=theme.TEXT_MUTED)
+        tk.Label(state, textvariable=self.status_var, bg=theme.SURFACE, fg=theme.TEXT_PRIMARY,
+                 font=(theme.FONT_FAMILY, 9, "bold")).pack(side="left")
+        tk.Label(state, text="·  Local inference", bg=theme.SURFACE, fg=theme.TEXT_MUTED,
+                 font=(theme.FONT_FAMILY, 9)).pack(side="left", padx=(5, 0))
+        self.status_var.trace_add("write", self._update_status_indicator)
+        self._update_status_indicator()
+
+        self.save_button = ttk.Button(footer, text="Save settings", command=self._save_settings, style="Voxen.TButton")
+        self.save_button.grid(row=0, column=1, rowspan=2, sticky="ne", padx=(12, 0))
+        detail = tk.Label(footer, textvariable=self.detail_var, bg=theme.SURFACE, fg=theme.STATUS_DETAIL,
+                          font=(theme.FONT_FAMILY, 8), wraplength=315, justify="left")
+        detail.grid(row=1, column=0, sticky="w", pady=(3, 0))
+        # Error messages may be longer than the normal one-line status.
+        self.detail_var.trace_add("write", self._schedule_layout_fit)
+        self.hotkey_hint_var.trace_add("write", self._schedule_layout_fit)
+
+    def _update_status_indicator(self, *_args) -> None:
+        color = {"Ready": theme.SUCCESS, "Error": theme.ERROR}.get(self.status_var.get(), theme.TEXT_MUTED)
+        self.status_indicator.itemconfigure(self.status_dot, fill=color)
+
+    def _resize_hotkey_button(self, *_args) -> None:
+        from tkinter import font
+
+        width = max(158, font.Font(root=self.root, font=(theme.FONT_FAMILY, 9, "bold")).measure(self.hotkey_button_var.get()) + 24)
+        self.hotkey_button.configure(width=width)
+        self._schedule_layout_fit()
+
+    def _schedule_layout_fit(self, *_args) -> None:
+        self.root.after_idle(self._grow_window_to_content)
+
+    def _grow_window_to_content(self) -> None:
+        self.root.update_idletasks()
+        width = min(max(self.root.winfo_width(), self.root.winfo_reqwidth()), self.root.winfo_screenwidth())
+        height = min(max(self.root.winfo_height(), self.root.winfo_reqheight()), int(self.root.winfo_screenheight() * 0.92))
+        if (width, height) != (self.root.winfo_width(), self.root.winfo_height()):
+            self.root.geometry(f"{width}x{height}")
 
     def _fit_window_to_content(self) -> None:
         """Size the dashboard to its content instead of a hardcoded rect.
@@ -217,11 +201,11 @@ class VoxenApp:
         """
         try:
             self.root.update_idletasks()
-            width = min(max(self.root.winfo_reqwidth(), 500), self.root.winfo_screenwidth())
-            height = min(max(self.root.winfo_reqheight(), 460), int(self.root.winfo_screenheight() * 0.92))
+            width = min(max(self.root.winfo_reqwidth(), MIN_WIDTH), self.root.winfo_screenwidth())
+            height = min(max(self.root.winfo_reqheight(), MIN_HEIGHT), int(self.root.winfo_screenheight() * 0.92))
             self.root.geometry(f"{width}x{height}")
         except tk.TclError:
-            self.root.geometry("560x600")
+            self.root.geometry("540x260")
 
     @staticmethod
     def _divider(parent: tk.Widget, *, pady) -> tk.Frame:
@@ -229,8 +213,15 @@ class VoxenApp:
         line.pack(fill="x", pady=pady)
         return line
 
-    def _on_combo_selected(self, _event: tk.Event) -> None:
-        self.detail_var.set("Selection updated. Click SAVE SETTINGS to keep it.")
+    def _on_combo_selected(self, event: tk.Event) -> None:
+        if event.widget is self.model_combo:
+            self.model_var.set(SUPPORTED_MODELS[self.model_combo.current()])
+        elif event.widget is self.language_combo:
+            self.language_var.set(SUPPORTED_LANGUAGES[self.language_combo.current()])
+        self._mark_settings_changed()
+
+    def _mark_settings_changed(self) -> None:
+        self.detail_var.set("Unsaved changes. Save settings to apply.")
 
     def _start_hotkey_capture(self) -> None:
         if self.hotkey is not None:
