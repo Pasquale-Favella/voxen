@@ -1,158 +1,154 @@
-<p align="center">
-	<picture>
-		<source media="(prefers-color-scheme: dark)" srcset="assets/voxen-mark-dark.png">
-		<img src="assets/voxen-mark.png" alt="Voxen waveform monogram" width="132">
-	</picture>
-</p>
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/voxen-mark-dark.png">
+    <img src="assets/voxen-mark.png" alt="Voxen" width="112">
+  </picture>
 
-<h1 align="center">Voxen</h1>
+  <h1>Voxen</h1>
 
-<p align="center">
-	Local-first voice dictation for Windows and macOS.
-	<br>
-	<strong>Hold. Speak. Release. Done.</strong>
-</p>
+  <p><strong>Your voice, anywhere you type.</strong></p>
+  <p>Local-first voice dictation for Windows and macOS.<br>
+  Hold a shortcut, speak naturally, and release to type.</p>
 
-<p align="center">
-	Private by default. Fast by design. Ready wherever your cursor is.
-</p>
+  <p>
+    <a href="https://github.com/Pasquale-Favella/voxen/releases/latest"><img src="https://img.shields.io/github/v/release/Pasquale-Favella/voxen?style=flat-square&color=52525b&label=release" alt="Latest release"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-52525b?style=flat-square" alt="MIT license"></a>
+    <a href="https://github.com/Pasquale-Favella/voxen/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/Pasquale-Favella/voxen/build.yml?branch=main&style=flat-square&label=build" alt="Build status"></a>
+  </p>
 
-## The idea
+  <p><a href="https://github.com/Pasquale-Favella/voxen/releases/latest"><strong>Download Voxen</strong></a> · <a href="#how-it-works">How it works</a> · <a href="#run-from-source">Develop</a></p>
+</div>
 
-Voxen turns speech into text inside the application you are already using. It stays quiet in the tray or menu bar until you need it:
+<br>
 
-```text
-HOLD HOTKEY  ->  SPEAK  ->  RELEASE  ->  TEXT IN THE ACTIVE APP
-```
+Voxen is a small desktop utility that turns your voice into text in the app you're already using. No separate editor to open, no cloud transcription service, no account to create. It stays in the system tray or menu bar until you need it.
 
-The audio is transcribed locally with NVIDIA Parakeet TDT v3 (the default) through the lightweight `onnx-asr` runtime, or Faster Whisper through CTranslate2. A network connection is needed for the first model download only; inference then remains on the machine.
+## How it works
 
-## Quick start
+<kbd>Hold</kbd> &nbsp; → &nbsp; <kbd>Speak</kbd> &nbsp; → &nbsp; <kbd>Release</kbd> &nbsp; → &nbsp; **Text at your cursor**
 
-Requirements: Python 3.11 or newer and a working microphone.
+1. Put your cursor in a text field — a message, document, terminal or editor.
+2. Hold your shortcut and speak. A compact floating pill shows the audio level and elapsed time.
+3. Release the shortcut. Voxen transcribes locally and, by default, pastes the result into the focused application.
 
-### Windows
+| Windows | macOS |
+| :--- | :--- |
+| <kbd>Ctrl</kbd> + <kbd>Space</kbd> | <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Space</kbd> |
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -e ".[dev]"
-python -m voxen
-```
+Change the shortcut in the dashboard. Closing the window hides Voxen, while the global shortcut remains available. Pause, reopen or quit from the tray/menu bar.
 
-Use `pythonw -m voxen` when you want to launch without a terminal window.
+## Designed to stay out of your way
 
-### macOS
+- **On-device recognition.** Parakeet TDT v3 INT8 is the default for new installations; Whisper is available as an alternative.
+- **Private by design.** Audio and transcripts are processed on your machine. Model downloads require a connection; recognition works offline with the model cached.
+- **A quiet interface.** A compact dashboard, a minimal recording pill, and light/dark appearance that follows your system by default.
+- **Natural text.** Automatic language detection, conservative punctuation and capitalization cleanup, and clipboard-based paste with best-effort restoration of previous clipboard contents.
+- **Your choice.** Configure the shortcut, recognition model, language where supported, automatic paste and final punctuation.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[dev]'
-python -m voxen
-```
+## Download
 
-The first launch opens the Voxen dashboard and warms the selected model in the background. Parakeet uses CPU ONNX Runtime; with Whisper and `Auto` device selection, Voxen uses CUDA when CTranslate2 detects a CUDA-capable GPU, otherwise CPU.
+Get the latest published build from [GitHub Releases](https://github.com/Pasquale-Favella/voxen/releases/latest). The redesigned interface described here is available in the source tree and may not yet be in the latest published build.
 
-## Parakeet (default)
+| Platform | Package | Installation |
+| :--- | :--- | :--- |
+| Windows | `Voxen-Setup-<version>.exe` | Run the installer |
+| macOS | `Voxen-macos.dmg` | Open the disk image and move Voxen to Applications |
 
-Parakeet runs through [`onnx-asr`](https://github.com/istupakov/onnx-asr) using the pre-exported, INT8-quantized [multilingual ONNX weights](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx). No PyTorch, NeMo, Transformers, Docker, or external server is involved; inference uses ONNX Runtime with `CPUExecutionProvider` by default.
+On first launch, allow microphone access and wait for the selected model to download and load. On macOS, enable **Accessibility** in System Settings → Privacy & Security for global shortcuts and text injection; grant **Input Monitoring** if requested.
 
-Parakeet is installed with Voxen and selected on a fresh configuration. Existing saved model choices are preserved; select `parakeet-tdt-v3` in the **Model** dropdown to switch. Notes:
+Voxen's desktop packages target Windows and macOS. Linux is used in CI for automated tests, not offered as a supported desktop release.
 
-- The pinned model files are SHA-256 validated and atomically repaired if necessary. The model is downloaded once into `%LOCALAPPDATA%\Voxen\models` (macOS: `~/Library/Application Support/Voxen/models`) and validated before use. Loads with intact cached files are fully offline.
-- Silero VAD segments long recordings into short chunks; if VAD is unavailable, Voxen falls back to fixed 20-second windows. This is buffered push-to-talk transcription, not native streaming.
-- Parakeet auto-detects among 25 European languages, so the **Language** setting has no effect. Punctuation and capitalization come from the model.
-- Parakeet uses CPU ONNX Runtime in the current distribution. `Compute type` is unused because the INT8 weights are pinned. Whisper device selection is unchanged.
-- Model attribution: [NVIDIA Parakeet TDT v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), ONNX conversion and INT8 quantization by [istupakov](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Silero VAD is [MIT licensed](https://huggingface.co/istupakov/silero-vad-onnx/blob/main/LICENSE.txt).
-- Cached weights can be removed with `ModelManager.delete_model("parakeet-tdt-v3")`.
+## Speech engines
 
-To compare engines or test Italian, English and mixed-language technical speech, see `scripts/benchmark_parakeet.py`. Install the dev extra as well. It reports first load (which may include download), cached reload, warm p50/p95 latency, real-time factor, sampled process RSS and model disk size. Use `--wav it.wav en.wav mixed.wav --reference it.txt en.txt mixed.txt` for transcripts and normalized WER/CER. Run each engine in a separate process.
+| Engine | Runtime | Language | Device |
+| :--- | :--- | :--- | :--- |
+| **Parakeet TDT v3 INT8** (default) | ONNX Runtime via [onnx-asr](https://github.com/istupakov/onnx-asr) | Auto · 25 European languages | CPU |
+| Whisper Tiny / Base / Small | [Faster Whisper](https://github.com/SYSTRAN/faster-whisper) · CTranslate2 | Auto or selected language | CPU / CUDA when available |
+
+Parakeet does not require NeMo, PyTorch, Docker, Ollama or a separate inference server. Model files are pinned to specific revisions, checked against SHA-256 hashes and repaired atomically if corrupt. Silero VAD splits longer recordings into speech segments; fixed 20-second chunks are the fallback. Voxen uses buffered push-to-talk inference after release, not live streaming.
+
+Existing saved model choices are preserved when upgrading. Parakeet detects language automatically, so its language selector is disabled. See the [model documentation](docs/models.md) for caching, attribution and benchmarking.
 
 ## Appearance
 
-Voxen follows the system application theme by default on Windows and macOS. Open the **…** menu → **Appearance** to select **System**, **Light**, or **Dark**. The choice applies immediately to the dashboard and floating recording pill and is saved independently of transcription settings. In System mode the app checks for OS appearance changes every two seconds. If the system preference is unavailable, Voxen retains the current palette (light at first launch).
+Open **… → Appearance** to choose **System**, **Light** or **Dark**. The preference applies immediately to the dashboard, brand mark and recording pill without restarting the recognition engine. System mode follows Windows/macOS appearance changes, checked every two seconds.
 
-## Daily flow
+## Run from source
 
-1. Place the cursor in any text field.
-2. Hold the global shortcut and speak naturally.
-3. Release the shortcut.
-4. Voxen transcribes, cleans up the text, and pastes it into the active app.
-
-| Platform | Default shortcut |
-| --- | --- |
-| Windows | `Ctrl+Space` |
-| macOS | `Cmd+Shift+Space` |
-
-The shortcut can be changed from the dashboard by pressing the desired key combination directly. The listening overlay shows the current state, elapsed time, and microphone level without taking over the screen.
-
-## What is included
-
-- Local speech-to-text with NVIDIA Parakeet TDT v3 via ONNX Runtime by default, and Faster Whisper as an alternative.
-- Automatic detection of 25 European languages with Parakeet; Japanese and manual language selection with Whisper.
-- Microphone access only while the global shortcut is held.
-- Conservative cleanup for capitalization, whitespace, and final punctuation; existing punctuation is preserved.
-- Clipboard-based paste with restoration of the previous clipboard contents. Windows and macOS use native clipboard formats when available, with a plain-text fallback.
-- Tray/menu bar background mode with open, pause/resume, and quit actions.
-- Persistent JSON settings for shortcut, model, language, and transcription options.
-
-## Background mode
-
-Closing the dashboard hides it; it does not stop Voxen. The listener, model, tray icon, and global shortcut continue running. The microphone is opened only while the global shortcut is held. Reopen the dashboard from the tray or menu bar.
-
-On macOS, allow Voxen in **System Settings > Privacy & Security**:
-
-- **Microphone** for audio capture;
-- **Accessibility** for the global shortcut and paste;
-- **Input Monitoring** if macOS requests it for global key events.
-
-Voxen stores its configuration here:
-
-```text
-Windows: %LOCALAPPDATA%\Voxen\config.json
-macOS:   ~/Library/Application Support/Voxen/config.json
-```
-
-## Build a distributable app
-
-PyInstaller builds for the operating system it runs on, so build on the target platform.
-
-### Windows
-
-```powershell
-.\scripts\build-windows.ps1
-```
-
-This creates a portable `dist\Voxen\` folder. If Inno Setup is installed, it also creates `dist\installer\Voxen-Setup-0.2.0.exe`; otherwise the script creates `dist\Voxen-windows.zip`.
-
-### macOS
+Requires Python **3.11–3.13**, a working microphone and Tk.
 
 ```bash
-./scripts/build-macos.sh
+git clone https://github.com/Pasquale-Favella/voxen.git
+cd voxen
+python -m venv .venv
 ```
 
-This creates `dist/Voxen.app` and `dist/Voxen-macos.dmg`. The same builds can run through the GitHub Actions workflow on tags or manual dispatch.
+Activate the environment:
 
-The build pipeline regenerates transparent light/dark marks and contrast-outlined system icons (PNG, ICO, ICNS) from `assets/voxen-mark.svg`. The dashboard mark follows the selected appearance; the tray and installer icons remain legible against light and dark system surfaces.
+| Windows PowerShell | macOS |
+| :--- | :--- |
+| ` .\.venv\Scripts\Activate.ps1 ` | `source .venv/bin/activate` |
 
-## Project map
+```bash
+python -m pip install -e .
+python -m voxen
+```
+
+For development, testing, benchmarking and packaging, install `python -m pip install -e ".[dev]"` instead. On Windows, `pythonw -m voxen` launches without a terminal window.
+
+## Development
+
+Voxen separates the UI and system integrations from the dictation lifecycle and speech engine.
 
 ```text
-src/voxen/           Application, audio, hotkey, tray, STT, and paste pipeline
-assets/              SVG source mark and generated PNG/ICO assets
-scripts/             Asset generation and Windows/macOS packaging commands
-installer/           Optional Inno Setup definition for Windows
-tests/               Focused unit tests for state, audio, config, hotkey, STT, clipboard, and text processing
+Global hotkey
+     │
+     ▼
+Dictation service ── Audio recorder
+     │
+     ▼
+Speech engine ────── Parakeet / Whisper
+     │
+     ▼
+Text processing ──── Clipboard / focused app
 ```
 
-## Test
+<details>
+<summary>Project structure</summary>
 
-```powershell
-python -m pytest
+```text
+src/voxen/
+  application/     Dictation service, ports and events
+  domain/          State, hotkey combinations and text processing
+  infrastructure/  Platform integration, resources, DPI and logging
+  presentation/    Theme, widgets and recording pill
+  stt.py           Speech engines, model cache and lifecycle
+  app.py           Desktop composition and event handling
+assets/            Vector identity and generated icons
+scripts/           Build, release checks and benchmarks
+installer/         Windows installer definition
+tests/             Unit, UI and integration tests
 ```
 
-## Scope
+</details>
 
-Voxen is intentionally small. History, profiles, continuous dictation, voice commands, LLM processing, and per-application rules are planned beyond the current MVP.
+```bash
+python -m ruff check src tests scripts
+python -m pytest -q
+```
+
+The real-model integration test is exercised in CI. For the local test and benchmark commands, see [models and benchmarks](docs/models.md). For packaging, see the [build guide](docs/build.md).
+
+## Contributing
+
+Bug reports and focused pull requests are welcome. Open an [issue](https://github.com/Pasquale-Favella/voxen/issues) with your OS, Voxen version, selected model and reproduction steps. Avoid including private audio or transcript content.
+
+Voxen deliberately focuses on one task: turning speech into text at the cursor. History, continuous dictation, voice commands and LLM-based processing are outside the current implementation.
+
+## License
+
+Voxen's own source code and artwork are available under the [MIT License](LICENSE). Third-party models and libraries retain their respective licenses, including NVIDIA Parakeet under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). See [model attribution](docs/models.md#attribution-and-licenses).
+
+<div align="center">
+  <sub>Speak naturally. Keep typing.</sub>
+</div>
