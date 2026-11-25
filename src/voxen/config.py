@@ -38,14 +38,14 @@ _FIELD_VALIDATORS: dict[str, Callable[[object], bool]] = {
     "language": lambda value: value in SUPPORTED_LANGUAGES,
     "device": lambda value: value in _ALLOWED_DEVICES,
     "compute_type": lambda value: value in _ALLOWED_COMPUTE_TYPES,
-    "sample_rate": lambda value: isinstance(value, int) and not isinstance(value, bool) and value > 0,
+    "sample_rate": lambda value: type(value) is int and value == 16_000,
 }
 
 
 @dataclass
 class AppConfig:
     hotkey: str = "cmd+shift+space" if sys.platform == "darwin" else "ctrl+space"
-    model: str = "base"
+    model: str = PARAKEET_MODEL
     language: str = "auto"
     device: str = "auto"
     compute_type: str = "int8"

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import shutil
 import subprocess
 import sys
@@ -38,10 +37,11 @@ def main() -> None:
         "--collect-all",
         "av",
     ]
-    # Parakeet is an optional extra; bundle its ONNX runtime only when installed.
+    # The default engine must be present in every installer; fail before packaging
+    # if the runtime is missing, and collect its metadata and native libraries.
+    run([sys.executable, "-c", "from onnx_asr.loader import Manager; import onnxruntime"])
     for package in ("onnx_asr", "onnxruntime"):
-        if importlib.util.find_spec(package) is not None:
-            command += ["--collect-all", package]
+        command += ["--collect-all", package]
     command += [
         "--add-data",
         f"{ROOT / 'assets' / 'voxen-mark.png'}{data_separator}assets",

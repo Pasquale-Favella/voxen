@@ -1,3 +1,5 @@
+import hashlib
+import io
 import sys
 import types
 from pathlib import Path
@@ -13,6 +15,7 @@ from voxen.stt import (
     ModelConfig,
     ModelManager,
     ParakeetEngine,
+    _ensure_files,
     _resolve_compute_type,
     default_engine_factory,
 )
@@ -185,8 +188,8 @@ def test_resolve_compute_type_maps_plain_int8_off_cuda() -> None:
     assert _resolve_compute_type("int8_float16", "cuda") == "int8_float16"
 
 
-MODEL_FILES = ("config.json", "vocab.txt", "encoder-model.int8.onnx", "decoder_joint-model.int8.onnx")
-VAD_FILES = ("config.json", "silero_vad.onnx")
+MODEL_FILES = ("config.json", "vocab.txt", "encoder-model.int8.onnx", "decoder_joint-model.int8.onnx", "nemo128.onnx")
+VAD_FILES = ("silero_vad.onnx",)
 
 
 class FakeOnnxAsrModel:
@@ -221,23 +224,32 @@ def _install_fake_onnx_asr(monkeypatch, tmp_path, model, *, cached: bool, vad: b
 
     state: dict = {"loads": [], "vads": [], "offline": []}
 
-    def load_model(name, path=None, *, quantization=None, providers=None, revision=None, **kwargs):
-        state["loads"].append((name, Path(path), {**kwargs, "quantization": quantization, "providers": providers, "revision": revision}))
-        state["offline"].append(Path(path).exists())
-        _write_files(Path(path), MODEL_FILES)
-        return model
-
-    def load_vad(name, path=None, *, providers=None, revision=None, **kwargs):
-        state["vads"].append((name, Path(path), {**kwargs, "providers": providers, "revision": revision}))
-        if vad_fails:
+    def ensure(directory, repository, revision, manifest, *, offline=False):
+        if repository.endswith("parakeet-tdt-0.6b-v3-onnx"):
+            state["offline"].append(Path(directory).exists())
+        state.setdefault("downloads", []).append((repository, revision, tuple(manifest)))
+        if vad_fails and repository.endswith("silero-vad-onnx"):
             raise RuntimeError("VAD download failed")
-        _write_files(Path(path), VAD_FILES)
-        return types.SimpleNamespace(name=name)
+        _write_files(Path(directory), tuple(manifest))
+
+    class Manager:
+        def __init__(self, *, providers):
+            self.providers = providers
+
+        def create_asr(self, name, path, *, quantization, offline):
+            state["loads"].append((name, Path(path), {"quantization": quantization, "providers": self.providers, "offline": offline}))
+            return model
+
+        def create_vad(self, name, path, *, offline):
+            state["vads"].append((name, Path(path), {"offline": offline}))
+            return types.SimpleNamespace(name=name)
 
     module = types.ModuleType("onnx_asr")
-    module.load_model = load_model
-    module.load_vad = load_vad
+    loader = types.ModuleType("onnx_asr.loader")
+    loader.Manager = Manager
     monkeypatch.setitem(sys.modules, "onnx_asr", module)
+    monkeypatch.setitem(sys.modules, "onnx_asr.loader", loader)
+    monkeypatch.setattr("voxen.stt._ensure_files", ensure)
     return state
 
 
@@ -258,7 +270,8 @@ def test_parakeet_engine_downloads_pinned_int8_model_with_cpu_provider(monkeypat
     assert path == tmp_path / PARAKEET_MODEL
     assert kwargs["quantization"] == "int8"
     assert kwargs["providers"] == ["CPUExecutionProvider"]
-    assert kwargs["revision"] == PARAKEET_REVISION
+    assert kwargs["offline"] is True
+    assert state["downloads"][0][1] == PARAKEET_REVISION
     assert state["offline"] == [False]
     assert engine._vad_enabled is True
     assert model.vad_options["max_speech_duration_s"] == 20
@@ -342,6 +355,7 @@ def test_parakeet_engine_returns_empty_text_for_empty_audio(monkeypatch, tmp_pat
 
 def test_parakeet_engine_reports_missing_optional_extra(monkeypatch, tmp_path) -> None:
     monkeypatch.setitem(sys.modules, "onnx_asr", None)
+    monkeypatch.setitem(sys.modules, "onnx_asr.loader", None)
 
     with pytest.raises(RuntimeError, match="requires onnx-asr"):
         ParakeetEngine(cache_root=tmp_path).load()
@@ -371,3 +385,34 @@ def test_model_manager_delete_model_unloads_engine_and_cache(monkeypatch, tmp_pa
     assert engine._model is None
     assert manager._engine is None
     assert deleted == ["parakeet"]
+
+def test_verified_cache_repairs_corruption_and_reuses_files_offline(monkeypatch, tmp_path) -> None:
+    payload = b"verified model"
+    manifest = {"weights.onnx": hashlib.sha256(payload).hexdigest()}
+    target = tmp_path / "weights.onnx"
+    target.write_bytes(b"corrupt")
+    urls = []
+
+    def download(url, *, timeout):
+        urls.append(url)
+        return io.BytesIO(payload)
+
+    monkeypatch.setattr("voxen.stt.urlopen", download)
+    _ensure_files(tmp_path, "owner/model", "pinned", manifest)
+    assert target.read_bytes() == payload
+    assert urls == ["https://huggingface.co/owner/model/resolve/pinned/weights.onnx"]
+    _ensure_files(tmp_path, "owner/model", "pinned", manifest, offline=True)
+    assert len(urls) == 1
+    target.write_bytes(b"corrupt")
+    with pytest.raises(RuntimeError, match="Missing or corrupt"):
+        _ensure_files(tmp_path, "owner/model", "pinned", manifest, offline=True)
+
+
+def test_bad_download_does_not_replace_existing_file(monkeypatch, tmp_path) -> None:
+    target = tmp_path / "weights.onnx"
+    target.write_bytes(b"old")
+    monkeypatch.setattr("voxen.stt.urlopen", lambda *args, **kwargs: io.BytesIO(b"bad"))
+    with pytest.raises(RuntimeError, match="SHA-256 mismatch"):
+        _ensure_files(tmp_path, "owner/model", "pinned", {"weights.onnx": hashlib.sha256(b"good").hexdigest()})
+    assert target.read_bytes() == b"old"
+    assert list(tmp_path.iterdir()) == [target]

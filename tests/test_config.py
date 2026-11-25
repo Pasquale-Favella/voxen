@@ -145,3 +145,19 @@ def test_config_save_does_not_leave_a_partial_file_if_writing_fails(tmp_path, mo
 
     assert ConfigStore(path).load().model == "small"
     assert list(tmp_path.glob(".config-*.tmp")) == []
+
+
+def test_config_normalizes_unsupported_sample_rate(tmp_path) -> None:
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"sample_rate": 48_000}), encoding="utf-8")
+    assert ConfigStore(path).load().sample_rate == 16_000
+
+
+def test_fresh_config_defaults_to_parakeet(tmp_path) -> None:
+    assert ConfigStore(tmp_path / "config.json").load().model == "parakeet-tdt-v3"
+
+
+def test_saved_whisper_choice_is_preserved(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.json")
+    store.save(AppConfig(model="base"))
+    assert store.load().model == "base"
