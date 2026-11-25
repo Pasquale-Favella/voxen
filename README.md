@@ -62,10 +62,11 @@ python -m pip install -e ".[parakeet]"
 
 Select `parakeet-tdt-v3` in the **Model** dropdown and save. Notes:
 
-- The model is downloaded once into `%LOCALAPPDATA%\Voxen\models` (macOS: `~/Library/Application Support/Voxen/models`) and validated before use. All later loads are fully offline.
+- The pinned model files are SHA-256 validated and atomically repaired if necessary. The model is downloaded once into `%LOCALAPPDATA%\Voxen\models` (macOS: `~/Library/Application Support/Voxen/models`) and validated before use. All later loads are fully offline.
 - Silero VAD segments long recordings into short chunks; if VAD is unavailable, Voxen falls back to fixed 20-second windows. This is buffered push-to-talk transcription, not native streaming.
 - Parakeet auto-detects among 25 European languages, so the **Language** setting has no effect. Punctuation and capitalization come from the model.
-- `Device` selects the ONNX provider: CPU by default, CUDA (with CPU fallback) when explicitly set to `cuda`. `Compute type` is unused because the INT8 weights are pinned.
+- Parakeet uses CPU ONNX Runtime in the current distribution. `Compute type` is unused because the INT8 weights are pinned. Whisper device selection is unchanged.
+- Model attribution: [NVIDIA Parakeet TDT v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3), ONNX conversion and INT8 quantization by [istupakov](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Silero VAD is [MIT licensed](https://huggingface.co/istupakov/silero-vad-onnx/blob/main/LICENSE.txt).
 - Cached weights can be removed with `ModelManager.delete_model("parakeet-tdt-v3")`.
 
 To compare engines or test Italian, English and mixed-language technical speech, see `scripts/benchmark_parakeet.py`. It reports cold start, warm latency, real-time factor, peak Python RAM and model disk size.
