@@ -19,11 +19,45 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: python -m pip install -e ".[dev,parakeet]"
+        run: python -m pip install -e ".[dev]"
       - name: Lint
         run: python -m ruff check src tests scripts
       - name: Run tests
         run: python -m pytest -q
+
+  parakeet-integration:
+    name: Real Parakeet inference (CPU)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Generate deterministic speech fixture
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y espeak-ng
+          espeak-ng -v en-us -s 140 -w /tmp/voxen-source.wav "Hello world. This is a local speech recognition test."
+          python - <<'PY'
+          import wave
+          import numpy as np
+          with wave.open('/tmp/voxen-source.wav', 'rb') as f:
+              rate = f.getframerate()
+              audio = np.frombuffer(f.readframes(f.getnframes()), dtype='<i2')
+          resampled = np.interp(np.arange(round(len(audio) * 16000 / rate)) * rate / 16000, np.arange(len(audio)), audio)
+          with wave.open('/tmp/voxen-smoke.wav', 'wb') as f:
+              f.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))
+              f.writeframes(resampled.astype('<i2').tobytes())
+          PY
+      - name: Verify pinned weights, VAD and offline reload
+        env:
+          VOXEN_PARAKEET_TEST_WAV: /tmp/voxen-smoke.wav
+          VOXEN_PARAKEET_TEST_EXPECTED: hello world
+        run: python -m pytest tests/test_parakeet_integration.py -q -rs
 
   package:
     name: Package (${{ matrix.os }})
@@ -39,7 +73,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: python -m pip install -e ".[dev,parakeet]"
+        run: python -m pip install -e ".[dev]"
       - name: Verify release version
         if: startsWith(github.ref, 'refs/tags/')
         env:
