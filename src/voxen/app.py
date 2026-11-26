@@ -90,6 +90,8 @@ class VoxenApp:
             self._start_services()
         self.root.after(EVENT_POLL_MS, self._drain_events)
         self.root.protocol("WM_DELETE_WINDOW", self._hide_settings)
+        if sys.platform == "darwin":
+            self.root.createcommand("::tk::mac::ReopenApplication", self._show_settings)
 
     @property
     def state(self) -> AppState:
@@ -693,6 +695,19 @@ def main() -> None:
 
         check_runtime()
         return
-    root = tk.Tk()
-    VoxenApp(root)
-    root.mainloop()
+    from .infrastructure.single_instance import InstanceGate, install_activation_handler
+
+    # Acquire before constructing Tk, registering hotkeys or loading models.
+    # A second launch signals the existing dashboard and exits.
+    with InstanceGate(ConfigStore().path.parent / "instance") as gate:
+        try:
+            primary = gate.start_or_activate()
+        except TimeoutError as exc:
+            logger.error("%s", exc)
+            raise SystemExit(str(exc)) from exc
+        if not primary:
+            return
+        root = tk.Tk()
+        app = VoxenApp(root)
+        install_activation_handler(root, gate, app._show_settings)
+        root.mainloop()

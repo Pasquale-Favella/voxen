@@ -671,3 +671,36 @@ def test_engine_ready_does_not_hide_input_permission_error():
     app._on_engine_ready(ev.EngineReady())
     assert app.status_var.get() == "Input unavailable"
     assert app.detail_var.get() == "Input Monitoring required"
+
+
+def test_secondary_launch_does_not_create_tk(monkeypatch, tmp_path):
+    from voxen.infrastructure import single_instance
+
+    calls = []
+
+    class Gate:
+        def __init__(self, path):
+            assert path == tmp_path / "instance"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def start_or_activate(self):
+            calls.append("activate")
+            return False
+
+    monkeypatch.setattr(app_module.sys, "argv", ["voxen"])
+    monkeypatch.setattr(app_module, "ConfigStore", lambda: SimpleNamespace(path=tmp_path / "config.json"))
+    monkeypatch.setattr(single_instance, "InstanceGate", Gate)
+    monkeypatch.setattr(app_module.tk, "Tk", lambda: (_ for _ in ()).throw(AssertionError("Second Tk instance")))
+    monkeypatch.setattr(app_module, "VoxenApp", lambda *_: (_ for _ in ()).throw(AssertionError("Second app")))
+    from voxen.infrastructure import dpi, linux, logging_setup
+
+    monkeypatch.setattr(dpi, "ensure_awareness", lambda: None)
+    monkeypatch.setattr(linux, "require_x11", lambda: None)
+    monkeypatch.setattr(logging_setup, "configure", lambda: None)
+    app_module.main()
+    assert calls == ["activate"]
