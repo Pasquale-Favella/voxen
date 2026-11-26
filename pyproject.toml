@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "voxen"
-version = "0.2.0"
+version = "0.2.1"
 description = "Local-first AI voice dictation for Windows, macOS and Linux (X11)"
 readme = "README.md"
 license = "MIT"
@@ -13,6 +13,8 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
     "faster-whisper>=1.1.0,<2",
     "onnx-asr[cpu]==0.12.0",
+    # Newer ONNX Runtime releases no longer ship macOS Intel wheels.
+    "onnxruntime==1.23.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
     "pynput>=1.7.7,<2",
     "numpy>=1.26.0,<3",
     "sounddevice>=0.4.7,<1",

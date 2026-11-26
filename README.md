@@ -52,14 +52,15 @@ Get the latest published build from [GitHub Releases](https://github.com/Pasqual
 | Platform | Package | Installation |
 | :--- | :--- | :--- |
 | Windows | `Voxen-Setup-<version>.exe` | Run the installer |
-| macOS (Apple Silicon / arm64) | `Voxen-macos.dmg` | Open the disk image and move Voxen to Applications |
+| macOS (Apple Silicon / arm64) | `Voxen-macos-arm64.dmg` | Open the disk image and move Voxen to Applications |
+| macOS (Intel / x86-64) | `Voxen-macos-x86_64.dmg` | Open the disk image and move Voxen to Applications |
 | Linux x86-64 (X11) | `voxen_<version>_amd64.deb` / `Voxen-<version>-x86_64.AppImage` | Install the DEB or make the AppImage executable |
 
 For releases produced by the attestation-enabled pipeline, see [how to verify installer provenance and SHA-256 checksums](docs/build.md#release-integrity-and-signing). Platform-native code signing is not yet configured.
 
 On first launch, allow microphone access and wait for the selected model to download and load. On macOS, enable **Accessibility** in System Settings → Privacy & Security for global shortcuts and text injection; grant **Input Monitoring** if requested.
 
-The v0.2.0 macOS disk image is built for Apple Silicon (M-series) only. Intel Macs require a separate x86-64 build; do not download the arm64 image for Intel.
+Starting with v0.2.1, macOS releases are built separately for Apple Silicon and Intel. Choose the matching DMG using Apple menu → About This Mac (Chip: Apple M-series; Processor: Intel). The earlier v0.2.0 `Voxen-macos.dmg` is Apple Silicon only. macOS 15 is the initial CI validation target; older macOS versions are not yet verified.
 
 Linux packaging initially targets x86-64 X11 sessions on Ubuntu 22.04 or newer (other compatible distributions may work). Native Wayland global shortcuts and paste are not supported. See [Linux installation](docs/build.md#linux-x86-64-x11) for dependencies and launch instructions.
 

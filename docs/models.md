@@ -59,3 +59,7 @@ Voxen's MIT license does not relicense third-party model weights or libraries.
 | Whisper | [OpenAI Whisper](https://github.com/openai/whisper) · [Faster Whisper](https://github.com/SYSTRAN/faster-whisper) and its converted model weights |
 
 Consult each upstream distribution for its license and notices. The app downloads model weights separately rather than bundling them into its installers.
+
+### Intel Mac runtime
+
+Intel macOS installs pin ONNX Runtime to 1.23.2, which provides native x86-64 wheels compatible with onnx-asr 0.12.0. Apple Silicon, Windows and Linux retain their existing dependency resolution. Both macOS DMGs are tested with real Parakeet inference and offline reload in CI. The same pinned ONNX weights are used on both architectures.

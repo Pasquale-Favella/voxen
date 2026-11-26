@@ -27,7 +27,7 @@ jobs:
 
   parakeet-integration:
     name: Real Parakeet inference (CPU)
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -58,6 +58,11 @@ jobs:
           VOXEN_PARAKEET_TEST_WAV: /tmp/voxen-smoke.wav
           VOXEN_PARAKEET_TEST_EXPECTED: hello world
         run: python -m pytest tests/test_parakeet_integration.py -q -rs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: speech-fixture
+          path: /tmp/voxen-smoke.wav
+          if-no-files-found: error
 
   package:
     name: Package (${{ matrix.os }})
@@ -66,7 +71,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -95,7 +100,74 @@ jobs:
           path: |
             dist/installer/*.exe
             dist/Voxen-windows.zip
-            dist/Voxen-macos.dmg
+          if-no-files-found: error
+
+  package-macos:
+    name: Package macOS (${{ matrix.arch }})
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    needs: [check, parakeet-integration]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            arch: arm64
+            python_arch: arm64
+          - os: macos-15-intel
+            arch: x86_64
+            python_arch: x64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: ${{ matrix.python_arch }}
+      - name: Verify native architecture and install dependencies
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          python -c 'import os, platform; assert platform.machine() == os.environ["EXPECTED_ARCH"], platform.machine()'
+          python -m pip install -e ".[dev]"
+          python -m pip check
+          python -c 'import onnxruntime, ctranslate2; print("ONNX Runtime", onnxruntime.__version__, "CTranslate2", ctranslate2.__version__); assert "CPUExecutionProvider" in onnxruntime.get_available_providers()'
+      - name: Verify release version
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/check_release_version.py
+      - name: Run tests
+        run: |
+          python -m ruff check src tests scripts
+          python -m pytest -q
+      - name: Download verified speech fixture
+        uses: actions/download-artifact@v5
+        with:
+          name: speech-fixture
+          path: speech-fixture
+      - name: Build native application
+        run: python scripts/build.py
+      - name: Verify packaged architecture and real offline inference
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+          VOXEN_PARAKEET_TEST_EXPECTED: hello world
+        shell: bash
+        run: |
+          set -euo pipefail
+          export VOXEN_PARAKEET_TEST_WAV="$PWD/speech-fixture/voxen-smoke.wav"
+          mount_dir=$(mktemp -d)
+          trap 'hdiutil detach "$mount_dir" -quiet || true; rmdir "$mount_dir" || true' EXIT
+          hdiutil attach "dist/Voxen-macos-$EXPECTED_ARCH.dmg" -readonly -nobrowse -mountpoint "$mount_dir" -quiet
+          app="$mount_dir/Voxen.app"
+          binary="$app/Contents/MacOS/Voxen"
+          test "$(lipo -archs "$binary")" = "$EXPECTED_ARCH"
+          codesign --verify --deep --strict "$app"
+          "$binary" --check-runtime
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Voxen-macos-${{ matrix.arch }}
+          path: dist/Voxen-macos-${{ matrix.arch }}.dmg
           if-no-files-found: error
 
   package-linux:
@@ -145,7 +217,7 @@ jobs:
   release:
     name: Attest and publish installers
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [package, package-linux]
+    needs: [package, package-macos, package-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -164,7 +236,7 @@ jobs:
           set -euo pipefail
           mkdir release-dist
           version="${GITHUB_REF_NAME#v}"
-          for name in "Voxen-Setup-$version.exe" "Voxen-macos.dmg" "voxen_${version}_amd64.deb" "Voxen-$version-x86_64.AppImage"; do
+          for name in "Voxen-Setup-$version.exe" "Voxen-macos-arm64.dmg" "Voxen-macos-x86_64.dmg" "voxen_${version}_amd64.deb" "Voxen-$version-x86_64.AppImage"; do
             mapfile -d '' files < <(find release-assets -type f -name "$name" -print0)
             if [[ ${#files[@]} -ne 1 ]]; then
               echo "Expected exactly one $name, found ${#files[@]}" >&2
@@ -205,7 +277,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Publish new releases only after all four installers, their digests
+          # Publish new releases only after all five installers, their digests
           # and signed provenance are available. Do not silently replace
           # the binaries of an existing public release.
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
