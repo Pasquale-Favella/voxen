@@ -59,6 +59,7 @@ class VoxenApp:
         self.audio_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voxen-audio")
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.hotkey: GlobalHotkey | None = None
+        self._hotkey_error: str | None = None
         self.tray: SystemTray | None = None
         self.hotkey_capture: HotkeyCapture | None = None
 
@@ -161,6 +162,8 @@ class VoxenApp:
             self.appearance_menu.add_radiobutton(label=label, value=value, variable=self.appearance_var,
                                                 command=self._select_appearance)
         self.preferences_menu.add_cascade(label="Appearance", menu=self.appearance_menu)
+        if sys.platform == "darwin":
+            self.preferences_menu.add_command(label="Retry global shortcut", command=lambda: self._on_hotkey_captured(self.hotkey_var.get()))
         if sys.platform == "linux":
             self.preferences_menu.add_separator()
             self.preferences_menu.add_command(label="Pause / Resume", command=self._toggle_pause)
@@ -347,12 +350,30 @@ class VoxenApp:
             self._restart_hotkey(hotkey)
         except (RuntimeError, ValueError) as exc:
             self.detail_var.set(str(exc))
+        else:
+            if self.state is AppState.READY:
+                self.status_var.set("Ready")
+                self.detail_var.set(f"Hold {hotkey} to dictate.")
 
     def _restart_hotkey(self, hotkey: str) -> None:
         if self.hotkey is not None:
             self.hotkey.stop()
-        self.hotkey = GlobalHotkey(hotkey, self._request_recording_start, self._request_recording_stop)
-        self.hotkey.start()
+        # Quartz callbacks run on the main loop. Only enqueue audio work there.
+        press, release = self._request_recording_start, self._request_recording_stop
+        if sys.platform == "darwin":
+            def press():
+                self.audio_executor.submit(self._request_recording_start)
+
+            def release():
+                self.audio_executor.submit(self._request_recording_stop)
+        self.hotkey = GlobalHotkey(hotkey, press, release)
+        try:
+            self.hotkey.start()
+        except Exception as exc:
+            self.hotkey = None
+            self._hotkey_error = str(exc)
+            raise
+        self._hotkey_error = None
 
     def _start_services(self) -> None:
         self.dictation.start()
@@ -362,8 +383,7 @@ class VoxenApp:
         self.status_var.set("Starting...")
         self.detail_var.set("Loading the local transcription model.")
         try:
-            self.hotkey = GlobalHotkey(self.config.hotkey, self._request_recording_start, self._request_recording_stop)
-            self.hotkey.start()
+            self._restart_hotkey(self.config.hotkey)
         except Exception as exc:
             logger.warning("Failed to start the global hotkey listener: %s", exc)
             self.detail_var.set(str(exc))
@@ -380,6 +400,7 @@ class VoxenApp:
             self.tray.start()
         except Exception as exc:
             logger.warning("Failed to start the system tray icon: %s", exc)
+            self.tray = None
             self._show_settings()
             self.detail_var.set(str(exc))
         self._show_settings()
@@ -401,7 +422,7 @@ class VoxenApp:
     def _hide_settings(self) -> None:
         if self.hotkey_capture is not None and self.hotkey_capture.capturing:
             self._cancel_hotkey_capture()
-        if sys.platform == "linux":
+        if sys.platform == "linux" or (sys.platform == "darwin" and self.tray is None):
             self.root.iconify()
         else:
             self.root.withdraw()
@@ -498,8 +519,8 @@ class VoxenApp:
 
     def _on_engine_ready(self, _event: ev.EngineReady) -> None:
         if self.state is AppState.READY:
-            self.status_var.set("Ready")
-            self.detail_var.set(f"Hold {self.config.hotkey} to dictate.")
+            self.status_var.set("Ready" if not getattr(self, "_hotkey_error", None) else "Input unavailable")
+            self.detail_var.set(getattr(self, "_hotkey_error", None) or f"Hold {self.config.hotkey} to dictate.")
 
     def _on_engine_failed(self, event: ev.EngineFailed) -> None:
         self.status_var.set("Error")

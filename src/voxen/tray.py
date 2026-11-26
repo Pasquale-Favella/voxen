@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import threading
 from collections.abc import Callable
 
@@ -15,6 +16,16 @@ class SystemTray:
         self._thread = None
 
     def start(self) -> None:
+        if sys.platform == "darwin":
+            from .infrastructure.macos_tray import MacTray
+
+            self._icon = MacTray(self.on_open, self.on_pause, self.on_quit)
+            try:
+                self._icon.start()
+            except Exception:
+                self._icon = None
+                raise
+            return
         try:
             import pystray
             from PIL import Image

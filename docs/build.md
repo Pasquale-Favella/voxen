@@ -99,3 +99,9 @@ Replace `vVERSION` with the actual tag (e.g. `v0.2.1` once published). The same 
 
 The keyless workflow does not require private signing keys and does not remove Windows SmartScreen or macOS Gatekeeper prompts. Do not commit certificates, signing keys or API tokens. Native signing must happen before the final checksum and attestation step. Published release assets must not be silently replaced; issue a new version for changes.
 
+
+### macOS input regression coverage
+
+macOS uses a listen-only Quartz keyboard tap on the main run loop, a Cocoa status item and direct Command+V Quartz events. No Carbon input-source lookup runs in a background listener. Grant Input Monitoring for shortcuts and Accessibility for paste; use the dashboard overflow menu to retry the shortcut after granting permission. The macOS bundle identifier is now stable (`io.github.pasquale-favella.voxen`), so previously granted permissions may need to be granted again.
+
+The packaged runtime smoke test starts the actual macOS services with model warm-up stubbed (inference is tested independently), checks the menu bar item and event tap or explicit permission-denial path, and exercises synthetic Quartz key events without injecting global input. Both release DMGs are also launched on macOS 26 runners before publication. Hosted CI cannot guarantee a TCC-granted physical keyboard or microphone; interactive checks with actual permissions remain necessary.

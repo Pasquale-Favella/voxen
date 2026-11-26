@@ -64,10 +64,10 @@ def main() -> None:
             arch,
             "--icon",
             str(ROOT / "assets" / "voxen.icns"),
+            "--osx-bundle-identifier",
+            "io.github.pasquale-favella.voxen",
             "--hidden-import",
-            "pystray._darwin",
-            "--hidden-import",
-            "pynput.keyboard._darwin",
+            "Quartz",
         ]
     else:
         command += ["--hidden-import", "pynput.keyboard._xorg", "--hidden-import", "pynput.mouse._xorg",
