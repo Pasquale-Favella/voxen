@@ -1,0 +1,27 @@
+name: Start v0.2.3 release
+on:
+  push:
+    branches: [release/v0.2.3]
+    paths: ['.github/workflows/start-v0.2.3.yml']
+permissions:
+  contents: write
+  actions: write
+jobs:
+  release-tag:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: 35c220184943372e957810c078acd774d40e231c
+      RELEASE_TAG: v0.2.3
+    steps:
+      - name: Create exact release tag and dispatch canonical build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)" = "$TARGET_SHA"
+          if current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq .object.sha 2>/dev/null); then
+            test "$current" = "$TARGET_SHA"
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$RELEASE_TAG" -f sha="$TARGET_SHA"
+          fi
+          gh workflow run build.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_TAG"
