@@ -57,7 +57,7 @@ Use a supported Python 3.11–3.13 interpreter for the virtual environment. Outp
 
 ## Assets and validation
 
-The build regenerates transparent light/dark PNGs and system ICO/ICNS icons from `assets/voxen-mark.svg`. The dashboard follows the selected appearance; system artwork uses a contrast keyline.
+The build regenerates transparent light/dark PNGs and system ICO/ICNS icons from `assets/voxen-waveform.svg`. The dashboard follows the selected appearance; system artwork uses a contrast keyline.
 
 ```bash
 python -m pip install -e ".[dev]"
