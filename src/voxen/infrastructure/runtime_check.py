@@ -48,6 +48,7 @@ def check_runtime() -> None:
             root.update()
             assert app.overlay._window.winfo_viewable()
             app.overlay.hide()
+            check_reopen(root, app, Path(directory))
             if sys.platform == "darwin":
                 # A barrier on the actual serial model executor ensures warm-up
                 # completed before draining the ready event. No sleeps or network.
@@ -148,3 +149,28 @@ def check_macos_services(app) -> None:
     assert [q.CGEventGetType(event) for event in posted] == [q.kCGEventKeyDown, q.kCGEventKeyUp]
     assert all(q.CGEventGetFlags(event) & q.kCGEventFlagMaskCommand for event in posted)
     print("macOS native services startup, synthetic Quartz callbacks and delivery worker passed.")
+
+
+def check_reopen(root, app, directory: Path) -> None:
+    """Validate dashboard restoration on the same Tk instance."""
+    from voxen.infrastructure.single_instance import InstanceGate, install_activation_handler
+
+    with InstanceGate(directory / "instance") as gate:
+        assert gate.start_or_activate()
+        app._hide_settings()
+        root.update()
+        (directory / "instance" / "reopen").touch()
+        cancel = install_activation_handler(root, gate, app._show_settings)
+        try:
+            root.update()
+            assert root.state() == "normal", "Activation did not restore the original window"
+            assert not (directory / "instance" / "reopen").exists()
+        finally:
+            cancel()
+    if sys.platform == "darwin":
+        app._hide_settings()
+        root.update()
+        root.tk.call("::tk::mac::ReopenApplication")
+        root.update()
+        assert root.state() == "normal", "Native reopen did not restore the dashboard"
+    print("Voxen single-instance dashboard activation passed.")
