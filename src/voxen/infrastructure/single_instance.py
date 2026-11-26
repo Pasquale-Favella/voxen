@@ -100,7 +100,7 @@ class InstanceGate:
         self._owned = False
 
 
-def install_activation_handler(root, gate: InstanceGate, show: Callable[[], None]) -> Callable[[], None>:
+def install_activation_handler(root, gate: InstanceGate, show: Callable[[], None]) -> Callable[[], None]:
     """Dispatch requests on Tk's main thread, never from a background worker."""
     def poll() -> None:
         nonlocal timer
