@@ -61,7 +61,12 @@ class InstanceGate:
             return True
         # No PID lookup, network socket or message contents. Concurrent launch
         # requests intentionally coalesce into one dashboard activation.
-        self._request.touch(mode=0o600, exist_ok=True)
+        try:
+            fd = os.open(self._request, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            pass  # Another contender already requested the same activation.
+        else:
+            os.close(fd)
         deadline = time.monotonic() + timeout
         while True:
             if not self._request.exists():
@@ -79,6 +84,12 @@ class InstanceGate:
         try:
             self._request.unlink()
         except FileNotFoundError:
+            return False
+        except PermissionError:
+            # Windows may briefly deny deletion while a contender creates the
+            # marker. Leave it pending for the next poll instead of losing it.
+            if sys.platform != "win32":
+                raise
             return False
         return True
 

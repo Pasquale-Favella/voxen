@@ -695,19 +695,30 @@ def main() -> None:
 
         check_runtime()
         return
+    import atexit
+
     from .infrastructure.single_instance import InstanceGate, install_activation_handler
 
     # Acquire before constructing Tk, registering hotkeys or loading models.
     # A second launch signals the existing dashboard and exits.
-    with InstanceGate(ConfigStore().path.parent / "instance") as gate:
-        try:
-            primary = gate.start_or_activate()
-        except TimeoutError as exc:
-            logger.error("%s", exc)
-            raise SystemExit(str(exc)) from exc
-        if not primary:
-            return
-        root = tk.Tk()
-        app = VoxenApp(root)
-        install_activation_handler(root, gate, app._show_settings)
-        root.mainloop()
+    gate = InstanceGate(ConfigStore().path.parent / "instance")
+    try:
+        primary = gate.start_or_activate()
+    except TimeoutError as exc:
+        gate.close()
+        logger.error("%s", exc)
+        raise SystemExit(str(exc)) from exc
+    except BaseException:
+        gate.close()
+        raise
+    if not primary:
+        gate.close()
+        return
+
+    # ThreadPoolExecutor workers may outlive the UI during shutdown. Keep the
+    # lock until interpreter exit, after those workers have stopped.
+    atexit.register(gate.close)
+    root = tk.Tk()
+    app = VoxenApp(root)
+    install_activation_handler(root, gate, app._show_settings)
+    root.mainloop()

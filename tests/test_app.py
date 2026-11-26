@@ -682,11 +682,8 @@ def test_secondary_launch_does_not_create_tk(monkeypatch, tmp_path):
         def __init__(self, path):
             assert path == tmp_path / "instance"
 
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            pass
+        def close(self):
+            calls.append("close")
 
         def start_or_activate(self):
             calls.append("activate")
@@ -703,4 +700,4 @@ def test_secondary_launch_does_not_create_tk(monkeypatch, tmp_path):
     monkeypatch.setattr(linux, "require_x11", lambda: None)
     monkeypatch.setattr(logging_setup, "configure", lambda: None)
     app_module.main()
-    assert calls == ["activate"]
+    assert calls == ["activate", "close"]
