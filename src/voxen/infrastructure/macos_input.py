@@ -46,6 +46,8 @@ def key_name(quartz, event, code: int) -> str:
         value = "".join(chr(unit) for unit in chars)
     if len(value) == 1 and value.isprintable():
         return normalize_key_name(value)
+    if len(value) == 1 and 1 <= ord(value) <= 26:
+        return chr(ord("a") + ord(value) - 1)
     return _ANSI.get(code, "")
 
 

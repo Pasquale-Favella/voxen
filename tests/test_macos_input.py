@@ -126,3 +126,10 @@ def test_tap_cannot_be_started_on_worker_thread():
         with pytest.raises(RuntimeError, match="main thread"):
             worker.submit(listener.start).result(timeout=2)
     q.CGEventTapCreate.assert_not_called()
+
+
+def test_control_character_matches_logical_letter_not_ansi_position():
+    listener, q, _, calls = make_listener("ctrl+z")
+    event(listener, q.kCGEventKeyDown, code=0, flags=1, chars="\x1a")
+    event(listener, q.kCGEventKeyUp, code=0, flags=1)
+    assert calls == ["down", "up"]

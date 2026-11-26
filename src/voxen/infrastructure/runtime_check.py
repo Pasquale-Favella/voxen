@@ -101,10 +101,13 @@ def check_inference(wav: Path, expected: str) -> None:
 
 def check_macos_services(app) -> None:
     """Exercise actual native callbacks without posting input to the host."""
+    from concurrent.futures import ThreadPoolExecutor
+    from types import SimpleNamespace
+
     import Quartz as q
 
     from voxen.domain.hotkey_combo import KeyCombination
-    from voxen.infrastructure.macos_input import MacHotkey, key_name
+    from voxen.infrastructure.macos_input import MacHotkey, MacPasteAutomation, key_name
     from voxen.infrastructure.macos_tray import MacTray
 
     assert app.tray is not None and isinstance(app.tray._icon, MacTray), "Native tray did not start"
@@ -127,6 +130,21 @@ def check_macos_services(app) -> None:
     assert events == ["down", "up"]
     # Exercise the actual PyObjC Unicode bridge (no event is posted globally).
     letter = q.CGEventCreateKeyboardEvent(None, 0, True)
-    q.CGEventKeyboardSetUnicodeString(letter, 1, (ord("z"),))
+    q.CGEventKeyboardSetUnicodeString(letter, 1, "z")
     assert key_name(q, letter, 0) == "z"
-    print("macOS native services startup and synthetic Quartz callbacks passed.")
+    # Build real Quartz paste events on the existing delivery thread boundary,
+    # but intercept posting so the CI host's active application is untouched.
+    posted = []
+    quartz = SimpleNamespace(
+        CGPreflightPostEventAccess=lambda: True,
+        CGEventCreateKeyboardEvent=q.CGEventCreateKeyboardEvent,
+        CGEventSetFlags=q.CGEventSetFlags,
+        CGEventPost=lambda _, event: posted.append(event),
+        kCGEventFlagMaskCommand=q.kCGEventFlagMaskCommand,
+        kCGHIDEventTap=q.kCGHIDEventTap,
+    )
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        worker.submit(MacPasteAutomation(quartz).hotkey, "command", "v").result(timeout=5)
+    assert [q.CGEventGetType(event) for event in posted] == [q.kCGEventKeyDown, q.kCGEventKeyUp]
+    assert all(q.CGEventGetFlags(event) & q.kCGEventFlagMaskCommand for event in posted)
+    print("macOS native services startup, synthetic Quartz callbacks and delivery worker passed.")
