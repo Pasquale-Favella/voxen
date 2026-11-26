@@ -644,3 +644,30 @@ def test_fit_window_to_content_clamps_to_screen() -> None:
     app._fit_window_to_content()
 
     assert app.root.geometry_spec == "800x552"
+
+
+def test_macos_hotkey_callbacks_submit_audio_in_order(monkeypatch):
+    callbacks = []
+
+    class FakeHotkey:
+        def __init__(self, _hotkey, press, release):
+            callbacks.extend((press, release))
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(app_module.sys, "platform", "darwin")
+    monkeypatch.setattr(app_module, "GlobalHotkey", FakeHotkey)
+    app = make_app()
+    app._restart_hotkey("cmd+shift+space")
+    for callback in callbacks:
+        callback()
+    assert [fn.__name__ for fn, _ in app.audio_executor.submissions] == ["_request_recording_start", "_request_recording_stop"]
+
+
+def test_engine_ready_does_not_hide_input_permission_error():
+    app = make_app()
+    app._hotkey_error = "Input Monitoring required"
+    app._on_engine_ready(ev.EngineReady())
+    assert app.status_var.get() == "Input unavailable"
+    assert app.detail_var.get() == "Input Monitoring required"

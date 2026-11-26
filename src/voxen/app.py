@@ -163,7 +163,7 @@ class VoxenApp:
                                                 command=self._select_appearance)
         self.preferences_menu.add_cascade(label="Appearance", menu=self.appearance_menu)
         if sys.platform == "darwin":
-            self.preferences_menu.add_command(label="Retry global shortcut", command=lambda: self._on_hotkey_captured(self.hotkey_var.get()))
+            self.preferences_menu.add_command(label="Retry global shortcut", command=self._retry_global_shortcut)
         if sys.platform == "linux":
             self.preferences_menu.add_separator()
             self.preferences_menu.add_command(label="Pause / Resume", command=self._toggle_pause)
@@ -354,6 +354,14 @@ class VoxenApp:
             if self.state is AppState.READY:
                 self.status_var.set("Ready")
                 self.detail_var.set(f"Hold {hotkey} to dictate.")
+
+    def _retry_global_shortcut(self) -> None:
+        # A user-initiated retry may prompt macOS for Input Monitoring.
+        import Quartz as q
+
+        if not q.CGPreflightListenEventAccess():
+            q.CGRequestListenEventAccess()
+        self._on_hotkey_captured(self.hotkey_var.get())
 
     def _restart_hotkey(self, hotkey: str) -> None:
         if self.hotkey is not None:
@@ -598,7 +606,7 @@ class VoxenApp:
         if current_model != previous_model and self.dictation.rewarm():
             self.detail_var.set("Settings saved. Loading the new model in the background.")
             return
-        self.detail_var.set(f"Settings saved. Hold {self.config.hotkey} to dictate.")
+        self.detail_var.set(getattr(self, "_hotkey_error", None) or f"Settings saved. Hold {self.config.hotkey} to dictate.")
 
     def _cancel_hotkey_capture(self) -> None:
         self.hotkey_capture.cancel(self.config.hotkey)

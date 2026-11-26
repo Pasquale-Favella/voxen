@@ -11,35 +11,32 @@ from unittest.mock import patch
 
 def check_runtime() -> None:
     import onnxruntime
+    import pyperclip
+    import sounddevice
+    from onnx_asr.loader import Manager
+
+    from voxen import app as app_module
+    from voxen.config import ConfigStore
+
     if sys.platform != "darwin":
         import pyautogui
         from pynput import keyboard
 
         assert callable(pyautogui.hotkey)
         assert callable(keyboard.Listener)
-    import pyperclip
-    import sounddevice
-    from onnx_asr.loader import Manager
-    from voxen import app as app_module
-    from voxen.config import ConfigStore
 
     assert "CPUExecutionProvider" in onnxruntime.get_available_providers()
     assert callable(Manager.create_asr)
     assert callable(pyperclip.copy)
     assert callable(sounddevice.query_devices)
-    with tempfile.TemporaryDirectory(prefix="voxen-runtime-") as directory:
+    # Keep the model stub active for the full worker lifetime, not just construction.
+    with (
+        tempfile.TemporaryDirectory(prefix="voxen-runtime-") as directory,
+        patch.object(app_module, "ConfigStore", lambda: ConfigStore(Path(directory) / "config.json")),
+        patch.object(app_module.ModelManager, "warm", return_value=None) as warm,
+    ):
         root = tk.Tk()
-        # Exercise the production startup path on macOS. Replace only model
-        # warm-up (real inference is validated separately below).
-        if sys.platform == "darwin":
-            with (
-                patch.object(app_module, "ConfigStore", lambda: ConfigStore(Path(directory) / "config.json")),
-                patch.object(app_module.ModelManager, "warm", return_value=None),
-            ):
-                app = app_module.VoxenApp(root, start_services=True)
-        else:
-            with patch.object(app_module, "ConfigStore", lambda: ConfigStore(Path(directory) / "config.json")):
-                app = app_module.VoxenApp(root, start_services=False)
+        app = app_module.VoxenApp(root, start_services=sys.platform == "darwin")
         try:
             root.deiconify()
             root.update()
@@ -52,6 +49,11 @@ def check_runtime() -> None:
             assert app.overlay._window.winfo_viewable()
             app.overlay.hide()
             if sys.platform == "darwin":
+                # A barrier on the actual serial model executor ensures warm-up
+                # completed before draining the ready event. No sleeps or network.
+                app.dictation._executor.submit(lambda: None).result(timeout=10)
+                app._drain_events()
+                warm.assert_called_once()
                 check_macos_services(app)
         finally:
             app.close()
@@ -96,16 +98,18 @@ def check_inference(wav: Path, expected: str) -> None:
                 offline.unload()
     print("Voxen real Parakeet inference and offline reload passed.")
 
+
 def check_macos_services(app) -> None:
     """Exercise actual native callbacks without posting input to the host."""
     import Quartz as q
 
     from voxen.domain.hotkey_combo import KeyCombination
-    from voxen.infrastructure.macos_input import MacHotkey
+    from voxen.infrastructure.macos_input import MacHotkey, key_name
     from voxen.infrastructure.macos_tray import MacTray
 
     assert app.tray is not None and isinstance(app.tray._icon, MacTray), "Native tray did not start"
     assert app.tray._icon.item is not None
+    assert app.state.name == "READY"
     assert app.hotkey is not None or not q.CGPreflightListenEventAccess(), app._hotkey_error
     if app.hotkey is None:
         assert app._hotkey_error and "Input Monitoring" in app._hotkey_error
@@ -122,9 +126,7 @@ def check_macos_services(app) -> None:
         listener.callback(None, q.kCGEventKeyDown if down else q.kCGEventKeyUp, event, None)
     assert events == ["down", "up"]
     # Exercise the actual PyObjC Unicode bridge (no event is posted globally).
-    from voxen.infrastructure.macos_input import key_name
-
     letter = q.CGEventCreateKeyboardEvent(None, 0, True)
-    q.CGEventKeyboardSetUnicodeString(letter, 1, (ord("a"),))
-    assert key_name(q, letter, 0) == "a"
+    q.CGEventKeyboardSetUnicodeString(letter, 1, (ord("z"),))
+    assert key_name(q, letter, 0) == "z"
     print("macOS native services startup and synthetic Quartz callbacks passed.")

@@ -38,7 +38,8 @@ def require_main_thread() -> None:
 def key_name(quartz, event, code: int) -> str:
     if code in _SPECIAL:
         return _SPECIAL[code]
-    _, chars = quartz.CGEventKeyboardGetUnicodeString(event, 16, None, None)
+    count, chars = quartz.CGEventKeyboardGetUnicodeString(event, 16, None, None)
+    chars = chars[:count] if chars is not None else ""
     if isinstance(chars, str):
         value = chars
     else:
@@ -151,7 +152,8 @@ class MacPasteAutomation:
     def hotkey(self, modifier: str, key: str) -> None:
         if (modifier, key) != ("command", "v"):
             raise ValueError("Only Command+V is supported.")
-        require_main_thread()
+        # Delivery runs on the STT worker. These Quartz event APIs do not
+        # use the main-thread-only Carbon input-source lookup.
         q = self.q
         if not q.CGPreflightPostEventAccess():
             raise InputPermissionError("Allow Voxen in System Settings → Privacy & Security → Accessibility.")

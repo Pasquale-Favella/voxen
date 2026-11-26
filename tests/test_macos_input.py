@@ -1,5 +1,6 @@
 """Deterministic Quartz adapter tests; no host permissions or global input."""
 
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -110,3 +111,18 @@ def test_native_paste_checks_access_and_posts_pair():
     q.CGPreflightPostEventAccess.return_value = True
     paste.hotkey("command", "v")
     assert [call.args for call in q.CGEventPost.call_args_list] == [(0, (9, True)), (0, (9, False))]
+
+
+def test_paste_is_safe_from_existing_delivery_worker():
+    q = quartz()
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        worker.submit(MacPasteAutomation(q).hotkey, "command", "v").result(timeout=2)
+    assert q.CGEventPost.call_count == 2
+
+
+def test_tap_cannot_be_started_on_worker_thread():
+    listener, q, _, _ = make_listener()
+    with ThreadPoolExecutor(max_workers=1) as worker:
+        with pytest.raises(RuntimeError, match="main thread"):
+            worker.submit(listener.start).result(timeout=2)
+    q.CGEventTapCreate.assert_not_called()
