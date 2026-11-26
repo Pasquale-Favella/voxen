@@ -161,3 +161,13 @@ def test_saved_whisper_choice_is_preserved(tmp_path) -> None:
     store = ConfigStore(tmp_path / "config.json")
     store.save(AppConfig(model="base"))
     assert store.load().model == "base"
+
+
+
+def test_appearance_defaults_to_system_and_preserves_explicit_choice(tmp_path):
+    store = ConfigStore(tmp_path / "config.json")
+    assert store.load().appearance == "system"
+    store.save(AppConfig(appearance="dark"))
+    assert store.load().appearance == "dark"
+    store.save(AppConfig(appearance="invalid"))
+    assert store.load().appearance == "system"

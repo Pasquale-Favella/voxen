@@ -17,7 +17,7 @@ from voxen.presentation import overlay as ov
 
 
 class FakeWindow:
-    def __init__(self, width: int = 320, height: int = 64) -> None:
+    def __init__(self, width: int = ov._WIDTH, height: int = ov._HEIGHT) -> None:
         self._width = width
         self._height = height
         self._x = 0
@@ -138,7 +138,7 @@ class FakeWindll:
         self.user32 = FakeUser32()
 
 
-def make_overlay(monkeypatch, width: int = 320, height: int = 64):
+def make_overlay(monkeypatch, width: int = ov._WIDTH, height: int = ov._HEIGHT):
     # Pin the platform so _monitor_work_area() takes the deterministic
     # fallback path: on macOS it adds a menu-bar offset that would make
     # the hardcoded geometry below platform-dependent.
@@ -166,11 +166,11 @@ def test_show_applies_region_after_map(monkeypatch) -> None:
 
     app.show("listening")
 
-    assert app._window.geometry_calls == ["320x64+800+1000"]
+    assert app._window.geometry_calls == ["240x48+840+1016"]
     assert app._window.deiconify_calls == 1
     # Once pre-map (via _position_window) and once post-map (forced refresh).
     assert windll.user32.set_calls == [(999, 1234, True)] * 2
-    assert app._applied_size == (320, 64)
+    assert app._applied_size == (240, 48)
     assert len(app._root.after_idle_calls) == 1
 
 
@@ -184,7 +184,7 @@ def test_second_show_reuses_geometry_but_refreshes_region(monkeypatch) -> None:
 
     # Same target: no geometry reset (no manager re-settle bounce),
     # but the region is force-refreshed for the fresh map.
-    assert app._window.geometry_calls == ["320x64+800+1000"]
+    assert app._window.geometry_calls == ["240x48+840+1016"]
     assert len(windll.user32.set_calls) == 3
 
 
@@ -196,7 +196,7 @@ def test_redundant_region_application_is_skipped(monkeypatch) -> None:
 
     assert len(windll.user32.set_calls) == 1
 
-    app._window._width = 321
+    app._window._width = 241
     app._apply_native_region()
 
     assert len(windll.user32.set_calls) == 2
@@ -211,7 +211,7 @@ def test_configure_reapplies_only_on_size_change(monkeypatch) -> None:
 
     assert len(windll.user32.set_calls) == 1
 
-    app._window._height = 65
+    app._window._height = 49
     app._on_configure(None)
 
     assert len(windll.user32.set_calls) == 2
@@ -242,10 +242,10 @@ def test_animate_retries_instead_of_dying_when_not_yet_viewable(monkeypatch) -> 
 def test_heal_corrects_drift_and_stops_after_budget(monkeypatch) -> None:
     app, windll = make_overlay(monkeypatch)
     app._visible = True
-    app._target = (800, 1000, 320, 64)
-    app._geometry = "320x64+800+1000"
-    app._applied_size = (320, 64)
-    app._window._x, app._window._y = 800, 1000
+    app._target = (840, 1016, 240, 48)
+    app._geometry = "240x48+840+1016"
+    app._applied_size = (240, 48)
+    app._window._x, app._window._y = 840, 1016
 
     # Matching rect: only the size-guarded region check, no correction.
     app._heal_if_drifted()
@@ -255,19 +255,19 @@ def test_heal_corrects_drift_and_stops_after_budget(monkeypatch) -> None:
     baseline = len(windll.user32.set_calls)
 
     # Drifted size: force geometry + region, consuming budget.
-    app._window._width = 322
+    app._window._width = 242
     app._heal_if_drifted()
 
     assert app._heals == 1
-    assert app._window.geometry_calls == ["320x64+800+1000"]
+    assert app._window.geometry_calls == ["240x48+840+1016"]
     assert len(windll.user32.set_calls) == baseline + 1
 
     # Budget exhausted: no more fighting the window manager.
     app._heals = 3
-    app._window._width = 330
+    app._window._width = 250
     app._heal_if_drifted()
 
-    assert app._window.geometry_calls == ["320x64+800+1000"]
+    assert app._window.geometry_calls == ["240x48+840+1016"]
     assert len(windll.user32.set_calls) == baseline + 1
 
 
@@ -277,6 +277,6 @@ def test_position_accounts_for_macos_menu_bar(monkeypatch) -> None:
 
     app._position_window()
 
-    # 1080px screen + 25px menu bar: y = (1080 + 25) - 64 - 16.
-    assert app._window.geometry_calls == ["320x64+800+1025"]
-    assert app._target == (800, 1025, 320, 64)
+    # 1080px screen + 25px menu bar: y = (1080 + 25) - 48 - 16.
+    assert app._window.geometry_calls == ["240x48+840+1041"]
+    assert app._target == (840, 1041, 240, 48)

@@ -23,6 +23,10 @@ _BACKUP_COUNT = 3
 def _log_dir() -> Path:
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Logs" / "Voxen"
+    if sys.platform == "linux":
+        from .linux import xdg_directory
+
+        return xdg_directory("XDG_STATE_HOME", ".local/state") / "voxen" / "logs"
     return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Voxen" / "logs"
 
 

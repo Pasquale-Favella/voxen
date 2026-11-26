@@ -23,22 +23,18 @@ from .shapes import rounded_rect
 
 logger = logging.getLogger(__name__)
 
-_WIDTH = 320
-_HEIGHT = 64
+_WIDTH = 240
+_HEIGHT = 48
 _RADIUS = _HEIGHT / 2 - 1
-_BAR_COUNT = 22
+_BAR_COUNT = 15
 _BOTTOM_MARGIN = 16
 _MAX_HEALS = 3
 
-_MODE_ACCENT = {
-    "listening": theme.ACCENT,
-    "processing": theme.ACCENT_SOFT,
-}
-
 
 class RecordingOverlay:
-    def __init__(self, root: tk.Tk, level_provider: Callable[[], float]) -> None:
+    def __init__(self, root: tk.Tk, level_provider: Callable[[], float], palette: theme.Palette = theme.LIGHT) -> None:
         self._root = root
+        self._palette = palette
         self._level_provider = level_provider
         self._mode = "listening"
         self._phase = 0.0
@@ -58,17 +54,9 @@ class RecordingOverlay:
         self._window.resizable(False, False)
         self._window.attributes("-topmost", True)
 
-        self._native_region = False
-        if sys.platform == "win32":
-            try:
-                self._window.configure(bg=theme.OVERLAY_SHELL_BG)
-                self._native_region = True
-            except tk.TclError:
-                self._native_region = False
-        canvas_bg = theme.OVERLAY_SHELL_BG if self._native_region else theme.OVERLAY_BG
-        if not self._native_region:
-            self._window.configure(bg=theme.OVERLAY_BG)
-        self._canvas = tk.Canvas(self._window, width=_WIDTH, height=_HEIGHT, bg=canvas_bg, highlightthickness=0)
+        self._window.configure(bg=self._palette.OVERLAY_SHELL_BG)
+        self._native_region = sys.platform == "win32"
+        self._canvas = tk.Canvas(self._window, width=_WIDTH, height=_HEIGHT, bg=self._palette.OVERLAY_SHELL_BG, highlightthickness=0)
         self._canvas.pack()
         self._build_canvas_items()
         try:
@@ -104,37 +92,59 @@ class RecordingOverlay:
 
     def _build_canvas_items(self) -> None:
         canvas = self._canvas
-        rounded_rect(
+        self._shell_id = rounded_rect(
             canvas,
             1,
             1,
             _WIDTH - 1,
             _HEIGHT - 1,
             _RADIUS,
-            fill=theme.OVERLAY_SHELL_BG,
-            outline=theme.OVERLAY_SHELL_BORDER,
+            fill=self._palette.OVERLAY_SHELL_BG,
+            outline=self._palette.OVERLAY_SHELL_BORDER,
             width=1,
         )
         center_y = _HEIGHT / 2
-        dot_x, dot_r = 24, 4
-        self._dot_id = canvas.create_oval(dot_x - dot_r, center_y - dot_r, dot_x + dot_r, center_y + dot_r, outline="")
+        # Monochrome microphone glyph, drawn natively so it stays sharp at any DPI.
+        x = 25
+        canvas.create_oval(x - 15, center_y - 15, x + 15, center_y + 15, fill=self._palette.ACCENT, outline="", tags="mic_bg")
+        rounded_rect(canvas, x - 3, center_y - 8, x + 3, center_y + 3, 3, fill=self._palette.ACCENT_DARK, outline="", tags="mic_fill")
+        canvas.create_arc(x - 6, center_y - 5, x + 6, center_y + 7, start=180, extent=180,
+                          style="arc", outline=self._palette.ACCENT_DARK, width=1.4, tags="mic_arc")
+        canvas.create_line(x, center_y + 7, x, center_y + 10, fill=self._palette.ACCENT_DARK, width=1.4, tags="mic_fill")
+        canvas.create_line(x - 4, center_y + 10, x + 4, center_y + 10, fill=self._palette.ACCENT_DARK, width=1.4, capstyle="round", tags="mic_fill")
 
-        bar_start = 42
-        step = (_WIDTH - bar_start - 52) / _BAR_COUNT
         self._bar_ids = [
-            canvas.create_line(bar_start + index * step, center_y, bar_start + index * step, center_y, width=2.6, capstyle="round")
+            canvas.create_line(self._bar_x(index), center_y, self._bar_x(index), center_y, width=2.2,
+                               capstyle="round", fill=self._palette.ACCENT)
             for index in range(_BAR_COUNT)
         ]
+        canvas.create_line(169, 13, 169, _HEIGHT - 13, fill=self._palette.DIVIDER, tags="divider")
         self._label_id = canvas.create_text(
-            _WIDTH - 22,
-            center_y,
-            fill=theme.OVERLAY_HINT,
-            font=(theme.MONO_FAMILY, 9),
-            anchor="e",
+            203, center_y, fill=self._palette.OVERLAY_HINT, font=(theme.MONO_FAMILY, 9),
         )
+
+    def set_palette(self, palette: theme.Palette) -> None:
+        self._palette = palette
+        self._window.configure(bg=palette.OVERLAY_SHELL_BG)
+        canvas = self._canvas
+        canvas.configure(bg=palette.OVERLAY_SHELL_BG)
+        canvas.itemconfigure(self._shell_id, fill=palette.OVERLAY_SHELL_BG, outline=palette.OVERLAY_SHELL_BORDER)
+        canvas.itemconfigure("mic_bg", fill=palette.ACCENT)
+        canvas.itemconfigure("mic_fill", fill=palette.ACCENT_DARK)
+        canvas.itemconfigure("mic_arc", outline=palette.ACCENT_DARK)
+        canvas.itemconfigure("divider", fill=palette.DIVIDER)
+        canvas.itemconfigure(self._label_id, fill=palette.OVERLAY_HINT)
+        for bar in self._bar_ids:
+            canvas.itemconfigure(bar, fill=palette.ACCENT if self._mode == "listening" else palette.TEXT_MUTED)
+
+    @staticmethod
+    def _bar_x(index: int) -> float:
+        return 49 + index * 7.5
 
     def show(self, mode: str) -> None:
         self._mode = mode
+        if mode == "listening":
+            self._elapsed_text = "00:00"
         if not self._visible:
             self._heals = 0
             self._position_window()
@@ -279,13 +289,9 @@ class RecordingOverlay:
         self._heal_if_drifted()
         canvas = self._canvas
 
-        accent = _MODE_ACCENT[self._mode]
-        canvas.itemconfigure(self._dot_id, fill=accent)
+        accent = self._palette.ACCENT if self._mode == "listening" else self._palette.TEXT_MUTED
         center_y = _HEIGHT / 2
 
-        bar_start = 42
-        bar_area_width = _WIDTH - bar_start - 52
-        step = bar_area_width / _BAR_COUNT
         raw_level = max(0.0, min(1.0, float(self._level_provider())))
         self._visual_level += (raw_level - self._visual_level) * 0.38
         for index in range(_BAR_COUNT):
@@ -295,12 +301,12 @@ class RecordingOverlay:
                 position = index / (_BAR_COUNT - 1)
                 envelope = 0.58 + 0.42 * math.sin(math.pi * position)
                 ripple = 0.55 + 0.45 * abs(math.sin(self._phase * 1.7 - index * 0.38))
-                target_height = 3 + envelope * (2.5 + self._visual_level * (19 + 9 * ripple))
+                target_height = 2.5 + envelope * (1.5 + self._visual_level * (13 + 7 * ripple))
             response = 0.42 if target_height > self._bar_heights[index] else 0.18
             self._bar_heights[index] += (target_height - self._bar_heights[index]) * response
             height = self._bar_heights[index]
-            x = bar_start + index * step
-            color = theme.OVERLAY_BAR_BRIGHT if height > 13 else accent
+            x = self._bar_x(index)
+            color = self._palette.TEXT_PRIMARY if height > 13 else accent
             canvas.coords(self._bar_ids[index], x, center_y - height / 2, x, center_y + height / 2)
             canvas.itemconfigure(self._bar_ids[index], fill=color)
 

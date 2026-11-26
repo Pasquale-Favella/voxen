@@ -71,6 +71,10 @@ def models_root() -> Path:
     """Persistent directory for downloaded model weights."""
     if sys.platform == "darwin":
         base = Path.home() / "Library" / "Application Support" / "Voxen"
+    elif sys.platform == "linux":
+        from .infrastructure.linux import xdg_directory
+
+        base = xdg_directory("XDG_DATA_HOME", ".local/share") / "voxen"
     else:
         base = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Voxen"
     return base / "models"

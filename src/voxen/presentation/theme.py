@@ -1,110 +1,151 @@
-"""Voxen's color palette and ttk style setup.
-
-Pulled out of ``app.py`` so color literals scattered across widget
-constructors live in one place; changing the palette no longer means
-hunting through layout code.
-
-The palette is a flat, near-black neutral scheme with a single mint-green
-accent (matching the app's mark) and hairline dividers instead of boxed
-"cards" — closer to the minimal, pill-shaped aesthetic of dictation tools
-like Whispr Flow than Voxen's earlier boxed dark-green look.
-"""
+"""System appearance detection, immutable palettes and native Tk styles."""
 
 from __future__ import annotations
 
 import sys
 import tkinter as tk
+from dataclasses import dataclass
 from tkinter import font as tkfont
 from tkinter import ttk
 
-BACKGROUND = "#0b0b0d"
-SURFACE = "#0b0b0d"
-DIVIDER = "#1e1e23"
-ACCENT = "#489a7c"
-ACCENT_SOFT = "#72e0ae"
-ACCENT_DARK = "#ffffff"
-TEXT_PRIMARY = "#f5f5f7"
-TEXT_SECONDARY = "#8e8e96"
-TEXT_MUTED = "#5b5b63"
-LABEL_MUTED = "#8e8e96"
-HINT_MUTED = "#5b5b63"
-STATUS_DETAIL = "#8e8e96"
-HOTKEY_LABEL = "#6f6f78"
-COMBO_FIELD_BG = "#151517"
-COMBO_ACTIVE_BG = "#1c1c20"
-COMBO_BORDER = "#2a2a30"
-COMBO_DARK = "#0b0b0d"
-BUTTON_BG = "#151517"
-BUTTON_ACTIVE_BG = "#1c1c20"
-BUTTON_ACTIVE_FG = "#ffffff"
-BUTTON_FG = "#f5f5f7"
-CAPTURE_BG = "#489a7c"
-CAPTURE_ACTIVE_BG = "#57ab8a"
-CAPTURE_FG = "#ffffff"
-OVERLAY_BG = "#0b0b0d"
-OVERLAY_SHELL_BG = "#16161a"
-OVERLAY_SHELL_BORDER = "#26262c"
-OVERLAY_HINT = "#8e8e96"
-OVERLAY_BAR_BRIGHT = "#b9f8d6"
+APPEARANCE_POLL_MS = 2000
+
+
+@dataclass(frozen=True)
+class Palette:
+    name: str
+    SURFACE: str
+    DIVIDER: str
+    ACCENT: str
+    ACCENT_SOFT: str
+    ACCENT_DARK: str
+    TEXT_PRIMARY: str
+    TEXT_SECONDARY: str
+    TEXT_MUTED: str
+    COMBO_FIELD_BG: str
+    COMBO_ACTIVE_BG: str
+    COMBO_BORDER: str
+    BUTTON_BG: str
+    BUTTON_ACTIVE_BG: str
+    SUCCESS: str
+    ERROR: str
+    OVERLAY_SHELL_BG: str
+    OVERLAY_SHELL_BORDER: str
+    OVERLAY_HINT: str
+
+
+LIGHT = Palette(
+    "light", "#f8f8f9", "#e5e5e8", "#171719", "#343438", "#ffffff",
+    "#18181b", "#52525b", "#62626d", "#fcfcfd", "#ededf0", "#d9d9de",
+    "#ededf0", "#e2e2e6", "#217a54", "#b42318", "#fafafa", "#d4d4d8", "#3f3f46",
+)
+DARK = Palette(
+    "dark", "#141416", "#29292d", "#ededee", "#d0d0d4", "#18181b",
+    "#f1f1f3", "#a1a1aa", "#92929c", "#1b1b1e", "#242427", "#35353b",
+    "#222225", "#2d2d31", "#71cba0", "#ff9893", "#19191c", "#38383e", "#c3c3ca",
+)
 
 FONT_FAMILY = "Segoe UI" if sys.platform == "win32" else ("SF Pro Text" if sys.platform == "darwin" else "DejaVu Sans")
 MONO_FAMILY = "Consolas" if sys.platform == "win32" else ("SF Mono" if sys.platform == "darwin" else "DejaVu Sans Mono")
 
 
-def enable_dark_titlebar(root: tk.Tk) -> None:
-    """Best-effort: ask DWM to draw the native title bar in dark mode on Windows.
+def read_system_appearance() -> str | None:
+    """Read OS application appearance; return None if unavailable.
 
-    A white Windows title bar sitting directly above a near-black body reads
-    as broken, not "dark themed" — this is the standard ctypes trick to fix
-    that on Windows 10 2004+/11. It is inherently best-effort: older Windows
-    builds don't support the attribute, so failures are swallowed.
+    No subprocess, network or additional dependency. macOS uses the existing
+    Cocoa/PyObjC dependency; Windows reads AppsUseLightTheme (not taskbar theme).
     """
-    if sys.platform != "win32":
-        return
     try:
-        import ctypes
+        if sys.platform == "win32":
+            import winreg
 
-        root.update_idletasks()
-        hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
-        value = ctypes.c_int(1)
-        for attribute in (20, 19):  # 20 on Windows 10 20H1+/11, 19 on earlier builds
-            result = ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value))
-            if result == 0:
-                break
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
+                value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return {0: "dark", 1: "light"}.get(value)
+        if sys.platform == "darwin":
+            from CoreFoundation import (
+                CFPreferencesCopyValue,
+                CFPreferencesSynchronize,
+                kCFPreferencesAnyApplication,
+                kCFPreferencesAnyHost,
+                kCFPreferencesCurrentUser,
+            )
+
+            scope = (kCFPreferencesAnyApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost)
+            CFPreferencesSynchronize(*scope)
+            value = CFPreferencesCopyValue("AppleInterfaceStyle", *scope)
+            return "dark" if value == "Dark" else "light"
+        if sys.platform == "linux":
+            from ..infrastructure.linux import read_portal_appearance
+
+            return read_portal_appearance()
+    except (ImportError, OSError, AttributeError, RuntimeError, TypeError, ValueError):
+        return None
+    return None
+
+
+def resolve_palette(preference: str, fallback: Palette = LIGHT) -> Palette:
+    resolved = read_system_appearance() if preference == "system" else preference
+    if resolved == "dark":
+        return DARK
+    if resolved == "light":
+        return LIGHT
+    return fallback
+
+
+def apply_native_appearance(root: tk.Tk, preference: str, palette: Palette) -> None:
+    """Match native titlebar/menu appearance when the OS supports it."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            root.update_idletasks()
+            hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+            value = ctypes.c_int(palette.name == "dark")
+            for attribute in (20, 19):
+                if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value)) == 0:
+                    break
+        elif sys.platform == "darwin":
+            from AppKit import NSAppearance, NSApplication
+
+            appearance = None if preference == "system" else NSAppearance.appearanceNamed_(
+                "NSAppearanceNameDarkAqua" if palette.name == "dark" else "NSAppearanceNameAqua"
+            )
+            NSApplication.sharedApplication().setAppearance_(appearance)
     except Exception:
+        # Native chrome is best effort; the application's palette remains usable.
         pass
 
 
-def apply(root: tk.Tk) -> tkfont.Font:
-    """Configure ttk styles for this root and return the combobox popup font."""
-    style = ttk.Style()
+def apply(root: tk.Tk, palette: Palette, popup_font: tkfont.Font | None = None) -> tkfont.Font:
+    style = ttk.Style(root)
     style.theme_use("clam")
-    combo_popup_font = tkfont.Font(root, family=FONT_FAMILY, size=10)
-    root.option_add("*TCombobox*Listbox.background", COMBO_FIELD_BG)
-    root.option_add("*TCombobox*Listbox.foreground", TEXT_PRIMARY)
-    root.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
-    root.option_add("*TCombobox*Listbox.selectForeground", ACCENT_DARK)
-    root.option_add("*TCombobox*Listbox.font", str(combo_popup_font))
+    if popup_font is None:
+        popup_font = tkfont.Font(root, family=FONT_FAMILY, size=9)
+    root.option_add("*TCombobox*Listbox.background", palette.COMBO_FIELD_BG)
+    root.option_add("*TCombobox*Listbox.foreground", palette.TEXT_PRIMARY)
+    root.option_add("*TCombobox*Listbox.selectBackground", palette.BUTTON_BG)
+    root.option_add("*TCombobox*Listbox.selectForeground", palette.TEXT_PRIMARY)
+    root.option_add("*TCombobox*Listbox.font", str(popup_font))
     style.configure(
-        "Voxen.TCombobox",
-        fieldbackground=COMBO_FIELD_BG,
-        background=COMBO_FIELD_BG,
-        foreground=TEXT_PRIMARY,
-        arrowcolor=ACCENT,
-        bordercolor=COMBO_BORDER,
-        lightcolor=COMBO_BORDER,
-        darkcolor=COMBO_DARK,
-        padding=(10, 7),
-        arrowsize=15,
-        font=(FONT_FAMILY, 10),
+        "Voxen.TCombobox", fieldbackground=palette.COMBO_FIELD_BG, background=palette.COMBO_FIELD_BG,
+        foreground=palette.TEXT_PRIMARY, arrowcolor=palette.TEXT_SECONDARY, bordercolor=palette.COMBO_BORDER,
+        lightcolor=palette.COMBO_BORDER, darkcolor=palette.COMBO_BORDER, padding=(8, 7),
+        arrowsize=12, font=(FONT_FAMILY, 9),
     )
     style.map(
         "Voxen.TCombobox",
-        fieldbackground=[("readonly", COMBO_FIELD_BG), ("active", COMBO_ACTIVE_BG)],
-        background=[("readonly", COMBO_FIELD_BG), ("active", COMBO_ACTIVE_BG), ("!disabled", COMBO_FIELD_BG)],
-        foreground=[("readonly", TEXT_PRIMARY)],
-        selectbackground=[("readonly", ACCENT)],
-        selectforeground=[("readonly", ACCENT_DARK)],
-        arrowcolor=[("readonly", ACCENT), ("active", ACCENT_SOFT)],
+        fieldbackground=[("disabled", palette.BUTTON_BG), ("readonly", palette.COMBO_FIELD_BG)],
+        background=[("disabled", palette.BUTTON_BG), ("active", palette.COMBO_ACTIVE_BG), ("readonly", palette.COMBO_FIELD_BG)],
+        foreground=[("disabled", palette.TEXT_MUTED), ("readonly", palette.TEXT_PRIMARY)],
+        arrowcolor=[("disabled", palette.TEXT_MUTED), ("readonly", palette.TEXT_SECONDARY)],
+        selectbackground=[("readonly", palette.BUTTON_BG)], selectforeground=[("readonly", palette.TEXT_PRIMARY)],
+        bordercolor=[("focus", palette.TEXT_SECONDARY)],
     )
-    return combo_popup_font
+    for name in ("Voxen.TButton", "Voxen.TMenubutton"):
+        style.configure(name, background=palette.COMBO_FIELD_BG, foreground=palette.TEXT_PRIMARY,
+                        bordercolor=palette.COMBO_BORDER, lightcolor=palette.COMBO_BORDER, darkcolor=palette.COMBO_BORDER,
+                        padding=(9, 7), font=(FONT_FAMILY, 9), relief="flat")
+        style.map(name, background=[("pressed", palette.BUTTON_ACTIVE_BG), ("active", palette.BUTTON_BG)],
+                  bordercolor=[("focus", palette.TEXT_SECONDARY)])
+    return popup_font

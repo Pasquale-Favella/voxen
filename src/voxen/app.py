@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import base64
 import logging
 import queue
+import sys
 import time
 import tkinter as tk
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
+from io import BytesIO
 from tkinter import ttk
 
 from .application import events as ev
@@ -19,25 +23,31 @@ from .injector import ClipboardInjector
 from .presentation import theme
 from .presentation.hotkey_capture import HotkeyCapture
 from .presentation.overlay import RecordingOverlay
-from .presentation.shapes import Checkbox, RoundedButton
+from .presentation.shapes import RoundedButton
 from .stt import ModelManager, is_parakeet_model
 from .tray import SystemTray
 
 EVENT_POLL_MS = 25
+MIN_WIDTH = 500
+MIN_HEIGHT = 220
+MODEL_LABELS = dict(zip(SUPPORTED_MODELS, ("Whisper Tiny", "Whisper Base", "Whisper Small", "Parakeet v3"), strict=True))
+LANGUAGE_LABELS = dict(zip(SUPPORTED_LANGUAGES, ("Auto", "Italian", "English", "Japanese", "French", "German", "Spanish"), strict=True))
 
 logger = logging.getLogger(__name__)
 
 
 class VoxenApp:
-    def __init__(self, root: tk.Tk) -> None:
+    def __init__(self, root: tk.Tk, *, start_services: bool = True) -> None:
         self.root = root
         self.root.title("Voxen")
-        self.root.minsize(500, 460)
-        self.root.configure(bg=theme.BACKGROUND)
-        theme.enable_dark_titlebar(self.root)
-
+        self.root.minsize(MIN_WIDTH, MIN_HEIGHT)
         self.store = ConfigStore()
         self.config = self.store.load()
+        self.palette = theme.resolve_palette(self.config.appearance)
+        self._theme_widgets: list[tuple[tk.Widget, dict[str, str]]] = []
+        self._theme_poll_id: str | None = None
+        self.root.configure(bg=self.palette.SURFACE)
+        theme.apply_native_appearance(self.root, self.config.appearance, self.palette)
         self.dictation = DictationService(
             audio=AudioRecorder(self.config.sample_rate),
             transcriber=ModelManager(),
@@ -52,6 +62,7 @@ class VoxenApp:
         self.tray: SystemTray | None = None
         self.hotkey_capture: HotkeyCapture | None = None
 
+        self.appearance_var = tk.StringVar(value=self.config.appearance)
         self.status_var = tk.StringVar(value="Starting Voxen...")
         self.detail_var = tk.StringVar(value="Local transcription, ready when you are.")
         self.hotkey_var = tk.StringVar(value=self.config.hotkey)
@@ -60,7 +71,9 @@ class VoxenApp:
         self.auto_paste_var = tk.BooleanVar(value=self.config.auto_paste)
         self.punctuation_var = tk.BooleanVar(value=self.config.punctuation)
         self.hotkey_button_var = tk.StringVar(value=HotkeyCapture.display_text(self.config.hotkey))
-        self.hotkey_hint_var = tk.StringVar(value="Click the button, then press your key combination")
+        self.hotkey_hint_var = tk.StringVar(value="Click shortcut to change it")
+        self.model_display_var = tk.StringVar(value=MODEL_LABELS[self.config.model])
+        self.language_display_var = tk.StringVar(value=LANGUAGE_LABELS[self.config.language])
         self.model_combo: ttk.Combobox | None = None
         self.language_combo: ttk.Combobox | None = None
         self.started_at = 0.0
@@ -69,9 +82,11 @@ class VoxenApp:
         self.model_var.trace_add("write", self._update_language_control)
         self._update_language_control()
         self._fit_window_to_content()
-        self.overlay = RecordingOverlay(self.root, level_provider=lambda: self.dictation.audio_level)
+        self.overlay = RecordingOverlay(self.root, level_provider=lambda: self.dictation.audio_level, palette=self.palette)
+        self._theme_poll_id = self.root.after(theme.APPEARANCE_POLL_MS, self._poll_system_appearance)
         self.root.withdraw()
-        self._start_services()
+        if start_services:
+            self._start_services()
         self.root.after(EVENT_POLL_MS, self._drain_events)
         self.root.protocol("WM_DELETE_WINDOW", self._hide_settings)
 
@@ -85,126 +100,210 @@ class VoxenApp:
             self.language_combo.configure(state="disabled" if automatic else "readonly")
             if automatic:
                 self.language_var.set("auto")
+            self.language_display_var.set(LANGUAGE_LABELS[self.language_var.get()])
 
     def _build_ui(self) -> None:
-        self.combo_popup_font = theme.apply(self.root)
+        self.combo_popup_font = theme.apply(self.root, self.palette)
+        content = self._themed(tk.Frame(self.root), bg="SURFACE")
+        content.pack(fill="both", expand=True, padx=28, pady=24)
 
-        container = tk.Frame(self.root, bg=theme.SURFACE)
-        container.pack(fill="both", expand=True)
-        content = tk.Frame(container, bg=theme.SURFACE)
-        content.pack(fill="both", expand=True, padx=32, pady=30)
+        brand = self._themed(tk.Frame(content), bg="SURFACE")
+        brand.pack(anchor="w")
+        self.brand_mark = self._themed(tk.Label(brand, borderwidth=0, highlightthickness=0), bg="SURFACE")
+        self.brand_mark.pack(side="left", padx=(0, 10))
+        self._label(brand, text="Voxen", foreground="TEXT_PRIMARY",
+                 font=(theme.FONT_FAMILY, 28, "bold")).pack(side="left")
+        self._update_brand_mark()
+        self._label(content, text="Your voice, anywhere you type.",
+                 foreground="TEXT_SECONDARY", font=(theme.FONT_FAMILY, 10)).pack(anchor="w", pady=(0, 22))
 
-        header = tk.Frame(content, bg=theme.SURFACE)
-        header.pack(fill="x")
-        try:
-            from PIL import Image, ImageTk
-            brand_image = Image.open(asset_path("voxen-mark.png")).resize((36, 36), Image.Resampling.LANCZOS)
-            self.brand_photo = ImageTk.PhotoImage(brand_image)
-            brand = tk.Label(header, image=self.brand_photo, bg=theme.SURFACE, borderwidth=0)
-        except (ImportError, FileNotFoundError):
-            brand = tk.Canvas(header, width=36, height=36, bg=theme.SURFACE, highlightthickness=0)
-            brand.create_oval(3, 3, 33, 33, fill=theme.ACCENT, outline="")
-            brand.create_oval(13, 13, 23, 23, fill=theme.SURFACE, outline="")
-        brand.pack(side="left", padx=(0, 12))
-        title_block = tk.Frame(header, bg=theme.SURFACE)
-        title_block.pack(side="left")
-        tk.Label(title_block, text="Voxen", bg=theme.SURFACE, fg=theme.TEXT_PRIMARY, font=(theme.FONT_FAMILY, 22, "bold")).pack(anchor="w")
-        tk.Label(title_block, text="Local · private · your voice anywhere you type", bg=theme.SURFACE, fg=theme.TEXT_SECONDARY, font=(theme.FONT_FAMILY, 9)).pack(anchor="w")
-
-        self._divider(content, pady=(22, 16))
-
-        status_row = tk.Frame(content, bg=theme.SURFACE)
-        status_row.pack(fill="x")
-        status_indicator = tk.Canvas(status_row, width=10, height=10, bg=theme.SURFACE, highlightthickness=0)
-        status_indicator.pack(side="left", padx=(0, 10))
-        status_indicator.create_oval(1, 1, 9, 9, fill=theme.ACCENT, outline="")
-        status_text = tk.Frame(status_row, bg=theme.SURFACE)
-        status_text.pack(side="left", fill="x", expand=True)
-        tk.Label(status_text, textvariable=self.status_var, bg=theme.SURFACE, fg=theme.TEXT_PRIMARY, font=(theme.FONT_FAMILY, 12, "bold")).pack(anchor="w")
-        tk.Label(status_text, textvariable=self.detail_var, bg=theme.SURFACE, fg=theme.STATUS_DETAIL, font=(theme.FONT_FAMILY, 9)).pack(anchor="w", pady=(1, 0))
-        tk.Label(status_row, textvariable=self.hotkey_var, bg=theme.SURFACE, fg=theme.HOTKEY_LABEL, font=(theme.MONO_FAMILY, 8)).pack(side="right")
-
-        self._divider(content, pady=(18, 20))
-
-        controls = tk.Frame(content, bg=theme.SURFACE)
+        controls = self._themed(tk.Frame(content), bg="SURFACE")
         controls.pack(fill="x")
         controls.columnconfigure(1, weight=1)
-        tk.Label(controls, text="QUICK SETTINGS", bg=theme.SURFACE, fg=theme.TEXT_MUTED, font=(theme.FONT_FAMILY, 8, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 14))
-        tk.Label(controls, text="Hotkey", bg=theme.SURFACE, fg=theme.LABEL_MUTED, font=(theme.FONT_FAMILY, 9)).grid(row=1, column=0, sticky="w", pady=8)
-        hotkey_area = tk.Frame(controls, bg=theme.SURFACE)
-        hotkey_area.grid(row=1, column=1, sticky="ew", pady=8)
-        hotkey_area.columnconfigure(0, weight=1)
         self.hotkey_button = RoundedButton(
-            hotkey_area,
-            textvariable=self.hotkey_button_var,
-            command=self._start_hotkey_capture,
-            bg=theme.BUTTON_BG,
-            fg=theme.BUTTON_FG,
-            active_bg=theme.BUTTON_ACTIVE_BG,
-            parent_bg=theme.SURFACE,
-            width=220,
-            height=36,
-            font=(theme.MONO_FAMILY, 10, "bold"),
+            controls, textvariable=self.hotkey_button_var, command=self._start_hotkey_capture,
+            bg=self.palette.BUTTON_BG, fg=self.palette.TEXT_PRIMARY, active_bg=self.palette.BUTTON_ACTIVE_BG,
+            parent_bg=self.palette.SURFACE, width=158, height=38, radius=9,
+            font=(theme.FONT_FAMILY, 9, "bold"),
         )
-        self.hotkey_button.grid(row=0, column=0, sticky="ew")
-        tk.Label(hotkey_area, textvariable=self.hotkey_hint_var, bg=theme.SURFACE, fg=theme.HINT_MUTED, font=(theme.FONT_FAMILY, 8)).grid(row=1, column=0, sticky="w", pady=(5, 0))
-        self.hotkey_capture = HotkeyCapture(self.hotkey_button, self.hotkey_var, self.hotkey_button_var, self.hotkey_hint_var, self._on_hotkey_captured)
+        self.hotkey_button.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.hotkey_capture = HotkeyCapture(self.hotkey_button, self.hotkey_var, self.hotkey_button_var,
+                                            self.hotkey_hint_var, self._on_hotkey_captured, palette=self.palette)
+        self.hotkey_button_var.trace_add("write", self._resize_hotkey_button)
 
-        model_lang_row = tk.Frame(controls, bg=theme.SURFACE)
-        model_lang_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=8)
-        model_lang_row.columnconfigure(1, weight=1)
-        model_lang_row.columnconfigure(3, weight=1)
-        for column, label, variable, values, attribute in (
-            (0, "Model", self.model_var, SUPPORTED_MODELS, "model_combo"),
-            (2, "Language", self.language_var, SUPPORTED_LANGUAGES, "language_combo"),
-        ):
-            tk.Label(model_lang_row, text=label, bg=theme.SURFACE, fg=theme.LABEL_MUTED, font=(theme.FONT_FAMILY, 9)).grid(row=0, column=column, sticky="w", padx=(0 if column == 0 else 24, 10))
-            combo = ttk.Combobox(
-                model_lang_row,
-                textvariable=variable,
-                values=values,
-                state="readonly",
-                takefocus=True,
-                style="Voxen.TCombobox",
-            )
-            combo.bind("<<ComboboxSelected>>", self._on_combo_selected)
-            setattr(self, attribute, combo)
-            combo.grid(row=0, column=column + 1, sticky="ew")
-        checks = tk.Frame(controls, bg=theme.SURFACE)
-        checks.grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
-        for text, variable in (
-            ("Paste into active app", self.auto_paste_var),
-            ("Final punctuation", self.punctuation_var),
-        ):
-            Checkbox(
-                checks,
-                text=text,
-                variable=variable,
-                accent=theme.ACCENT,
-                text_fg=theme.LABEL_MUTED,
-                box_off_bg=theme.SURFACE,
-                box_border=theme.COMBO_BORDER,
-                check_fg=theme.ACCENT_DARK,
-                parent_bg=theme.SURFACE,
-            ).pack(side="left", padx=(0, 24))
+        self.model_combo = ttk.Combobox(
+            controls, textvariable=self.model_display_var, values=tuple(MODEL_LABELS.values()),
+            state="readonly", width=15, style="Voxen.TCombobox",
+        )
+        self.model_combo.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        self.model_combo.bind("<<ComboboxSelected>>", self._on_combo_selected)
+        self.language_combo = ttk.Combobox(
+            controls, textvariable=self.language_display_var, values=tuple(LANGUAGE_LABELS.values()),
+            state="readonly", width=8, style="Voxen.TCombobox",
+        )
+        self.language_combo.grid(row=0, column=2, sticky="ew", padx=(0, 8))
+        self.language_combo.bind("<<ComboboxSelected>>", self._on_combo_selected)
 
-        self._divider(content, pady=(22, 18))
+        # Secondary preferences stay out of the default layout; no settings page.
+        more = ttk.Menubutton(controls, text="…", style="Voxen.TMenubutton", width=3, takefocus=True)
+        self.preferences_menu = self._themed(tk.Menu(more, tearoff=False),
+                                             bg="SURFACE", fg="TEXT_PRIMARY", activebackground="BUTTON_BG",
+                                             activeforeground="TEXT_PRIMARY", selectcolor="TEXT_PRIMARY")
+        self.preferences_menu.add_checkbutton(label="Paste into active app", variable=self.auto_paste_var,
+                                               command=self._mark_settings_changed)
+        self.preferences_menu.add_checkbutton(label="Final punctuation", variable=self.punctuation_var,
+                                               command=self._mark_settings_changed)
+        self.preferences_menu.add_separator()
+        self.appearance_menu = self._themed(tk.Menu(self.preferences_menu, tearoff=False),
+                                            bg="SURFACE", fg="TEXT_PRIMARY", activebackground="BUTTON_BG",
+                                            activeforeground="TEXT_PRIMARY", selectcolor="TEXT_PRIMARY")
+        for value, label in (("system", "System"), ("light", "Light"), ("dark", "Dark")):
+            self.appearance_menu.add_radiobutton(label=label, value=value, variable=self.appearance_var,
+                                                command=self._select_appearance)
+        self.preferences_menu.add_cascade(label="Appearance", menu=self.appearance_menu)
+        if sys.platform == "linux":
+            self.preferences_menu.add_separator()
+            self.preferences_menu.add_command(label="Pause / Resume", command=self._toggle_pause)
+            self.preferences_menu.add_command(label="Quit Voxen", command=self.close)
+        more.configure(menu=self.preferences_menu)
+        more.grid(row=0, column=3, sticky="ns")
 
-        actions = tk.Frame(content, bg=theme.SURFACE)
-        actions.pack(fill="x")
-        RoundedButton(
-            actions,
-            text="Save settings",
-            command=self._save_settings,
-            bg=theme.ACCENT,
-            fg=theme.ACCENT_DARK,
-            active_bg=theme.ACCENT_SOFT,
-            parent_bg=theme.SURFACE,
-            width=150,
-            height=38,
-            font=(theme.FONT_FAMILY, 10, "bold"),
-        ).pack(side="left")
-        tk.Label(content, text="Model downloads only on first use — inference stays on this machine", bg=theme.SURFACE, fg=theme.TEXT_MUTED, font=(theme.FONT_FAMILY, 8)).pack(anchor="w", pady=(14, 0))
+        self._label(content, textvariable=self.hotkey_hint_var, foreground="TEXT_MUTED",
+                 font=(theme.FONT_FAMILY, 8), wraplength=440, justify="left").pack(anchor="w", pady=(5, 0))
+        self._divider(content, pady=(15, 12))
+
+        footer = self._themed(tk.Frame(content), bg="SURFACE")
+        footer.pack(fill="x")
+        footer.columnconfigure(0, weight=1)
+        state = self._themed(tk.Frame(footer), bg="SURFACE")
+        state.grid(row=0, column=0, sticky="w")
+        self.status_indicator = self._themed(tk.Canvas(state, width=9, height=9, highlightthickness=0), bg="SURFACE")
+        self.status_indicator.pack(side="left", padx=(0, 6))
+        self.status_dot = self.status_indicator.create_oval(1, 1, 8, 8, outline="", fill=self.palette.TEXT_MUTED)
+        self._label(state, textvariable=self.status_var, foreground="TEXT_PRIMARY",
+                 font=(theme.FONT_FAMILY, 9, "bold")).pack(side="left")
+        self._label(state, text="·  Local inference", foreground="TEXT_MUTED",
+                 font=(theme.FONT_FAMILY, 9)).pack(side="left", padx=(5, 0))
+        self.status_var.trace_add("write", self._update_status_indicator)
+        self._update_status_indicator()
+
+        self.save_button = ttk.Button(footer, text="Save settings", command=self._save_settings, style="Voxen.TButton")
+        self.save_button.grid(row=0, column=1, rowspan=2, sticky="ne", padx=(12, 0))
+        detail = self._label(footer, textvariable=self.detail_var, foreground="TEXT_MUTED",
+                          font=(theme.FONT_FAMILY, 8), wraplength=315, justify="left")
+        detail.grid(row=1, column=0, sticky="w", pady=(3, 0))
+        # Error messages may be longer than the normal one-line status.
+        self.detail_var.trace_add("write", self._schedule_layout_fit)
+        self.hotkey_hint_var.trace_add("write", self._schedule_layout_fit)
+
+    def _update_brand_mark(self) -> None:
+        """Use the same transparent monogram in both themes and native chrome."""
+        from PIL import Image
+
+        def photo(image: Image.Image) -> tk.PhotoImage:
+            # Tk supports PNG natively; avoid the optional Pillow/Tk C bridge
+            # and its runtime extension discovery inside frozen applications.
+            buffer = BytesIO()
+            image.save(buffer, format="PNG")
+            return tk.PhotoImage(master=self.root, data=base64.b64encode(buffer.getvalue()).decode("ascii"), format="png")
+
+        asset = "voxen-mark-dark.png" if self.palette.name == "dark" else "voxen-mark.png"
+        try:
+            with Image.open(asset_path(asset)) as source:
+                mark = source.convert("RGBA")
+            native = mark.resize((32, 32), Image.Resampling.LANCZOS)
+            self._window_icon = photo(native)
+            self.root.iconphoto(True, self._window_icon)
+            # Trim transparent padding for the horizontal brand lockup, not
+            # for the square native icon.
+            bounds = mark.getbbox()
+            if bounds is not None:
+                mark = mark.crop(bounds)
+            mark.thumbnail((54, 32), Image.Resampling.LANCZOS)
+            self._brand_photo = photo(mark)
+            self.brand_mark.configure(image=self._brand_photo)
+        except (OSError, RuntimeError, tk.TclError) as exc:
+            logger.warning("Could not load Voxen brand mark: %s", exc)
+
+    def _themed(self, widget, **roles):
+        widget.configure(**{option: getattr(self.palette, role) for option, role in roles.items()})
+        self._theme_widgets.append((widget, roles))
+        return widget
+
+    def _label(self, parent, *, foreground: str, **kwargs):
+        return self._themed(tk.Label(parent, **kwargs), bg="SURFACE", fg=foreground)
+
+    def _select_appearance(self) -> None:
+        preference = self.appearance_var.get()
+        if preference == self.config.appearance:
+            return
+        # Appearance is independent of pending STT settings. Persist immediately
+        # without mutating the shared configuration until the write succeeds.
+        try:
+            self.store.save(replace(self.config, appearance=preference))
+        except OSError as exc:
+            self.appearance_var.set(self.config.appearance)
+            self.detail_var.set(f"Could not save appearance: {exc}")
+            return
+        self.config.appearance = preference
+        self._apply_appearance(theme.resolve_palette(preference, self.palette))
+
+    def _apply_appearance(self, palette: theme.Palette) -> None:
+        self.palette = palette
+        self.root.configure(bg=palette.SURFACE)
+        theme.apply_native_appearance(self.root, self.config.appearance, palette)
+        theme.apply(self.root, palette, self.combo_popup_font)
+        for widget, roles in self._theme_widgets:
+            widget.configure(**{option: getattr(palette, role) for option, role in roles.items()})
+        self._update_brand_mark()
+        self.hotkey_capture.set_palette(palette)
+        self.hotkey_button.configure(bg=palette.SURFACE)
+        self._update_status_indicator()
+        self.overlay.set_palette(palette)
+        # A previously opened ttk popup already has a listbox instance.
+        for combo in (self.model_combo, self.language_combo):
+            try:
+                popup = str(self.root.tk.call("ttk::combobox::PopdownWindow", str(combo)))
+                self.root.tk.call(popup + ".f.l", "configure", "-background", palette.COMBO_FIELD_BG,
+                                  "-foreground", palette.TEXT_PRIMARY, "-selectbackground", palette.BUTTON_BG,
+                                  "-selectforeground", palette.TEXT_PRIMARY)
+            except tk.TclError:
+                # Tk versions may use a different native popdown structure.
+                # The option database above still covers newly created popups.
+                pass
+
+    def _poll_system_appearance(self) -> None:
+        self._theme_poll_id = None
+        if self.state is AppState.CLOSING:
+            return
+        try:
+            if self.config.appearance == "system":
+                palette = theme.resolve_palette("system", self.palette)
+                if palette != self.palette:
+                    self._apply_appearance(palette)
+        finally:
+            self._theme_poll_id = self.root.after(theme.APPEARANCE_POLL_MS, self._poll_system_appearance)
+
+    def _update_status_indicator(self, *_args) -> None:
+        color = {"Ready": self.palette.SUCCESS, "Error": self.palette.ERROR}.get(self.status_var.get(), self.palette.TEXT_MUTED)
+        self.status_indicator.itemconfigure(self.status_dot, fill=color)
+
+    def _resize_hotkey_button(self, *_args) -> None:
+        from tkinter import font
+
+        width = max(158, font.Font(root=self.root, font=(theme.FONT_FAMILY, 9, "bold")).measure(self.hotkey_button_var.get()) + 24)
+        self.hotkey_button.configure(width=width)
+        self._schedule_layout_fit()
+
+    def _schedule_layout_fit(self, *_args) -> None:
+        self.root.after_idle(self._grow_window_to_content)
+
+    def _grow_window_to_content(self) -> None:
+        self.root.update_idletasks()
+        width = min(max(self.root.winfo_width(), self.root.winfo_reqwidth()), self.root.winfo_screenwidth())
+        height = min(max(self.root.winfo_height(), self.root.winfo_reqheight()), int(self.root.winfo_screenheight() * 0.92))
+        if (width, height) != (self.root.winfo_width(), self.root.winfo_height()):
+            self.root.geometry(f"{width}x{height}")
 
     def _fit_window_to_content(self) -> None:
         """Size the dashboard to its content instead of a hardcoded rect.
@@ -217,20 +316,26 @@ class VoxenApp:
         """
         try:
             self.root.update_idletasks()
-            width = min(max(self.root.winfo_reqwidth(), 500), self.root.winfo_screenwidth())
-            height = min(max(self.root.winfo_reqheight(), 460), int(self.root.winfo_screenheight() * 0.92))
+            width = min(max(self.root.winfo_reqwidth(), MIN_WIDTH), self.root.winfo_screenwidth())
+            height = min(max(self.root.winfo_reqheight(), MIN_HEIGHT), int(self.root.winfo_screenheight() * 0.92))
             self.root.geometry(f"{width}x{height}")
         except tk.TclError:
-            self.root.geometry("560x600")
+            self.root.geometry("540x260")
 
-    @staticmethod
-    def _divider(parent: tk.Widget, *, pady) -> tk.Frame:
-        line = tk.Frame(parent, bg=theme.DIVIDER, height=1)
+    def _divider(self, parent: tk.Widget, *, pady) -> tk.Frame:
+        line = self._themed(tk.Frame(parent, height=1), bg="DIVIDER")
         line.pack(fill="x", pady=pady)
         return line
 
-    def _on_combo_selected(self, _event: tk.Event) -> None:
-        self.detail_var.set("Selection updated. Click SAVE SETTINGS to keep it.")
+    def _on_combo_selected(self, event: tk.Event) -> None:
+        if event.widget is self.model_combo:
+            self.model_var.set(SUPPORTED_MODELS[self.model_combo.current()])
+        elif event.widget is self.language_combo:
+            self.language_var.set(SUPPORTED_LANGUAGES[self.language_combo.current()])
+        self._mark_settings_changed()
+
+    def _mark_settings_changed(self) -> None:
+        self.detail_var.set("Unsaved changes. Save settings to apply.")
 
     def _start_hotkey_capture(self) -> None:
         if self.hotkey is not None:
@@ -262,6 +367,10 @@ class VoxenApp:
         except Exception as exc:
             logger.warning("Failed to start the global hotkey listener: %s", exc)
             self.detail_var.set(str(exc))
+        # X11 tray protocols vary by desktop; keep an accessible taskbar window.
+        if sys.platform == "linux":
+            self._show_settings()
+            return
         try:
             self.tray = SystemTray(
                 self._request_show_settings,
@@ -292,7 +401,10 @@ class VoxenApp:
     def _hide_settings(self) -> None:
         if self.hotkey_capture is not None and self.hotkey_capture.capturing:
             self._cancel_hotkey_capture()
-        self.root.withdraw()
+        if sys.platform == "linux":
+            self.root.iconify()
+        else:
+            self.root.withdraw()
 
     def _toggle_pause(self) -> None:
         was_recording = self.state is AppState.RECORDING
@@ -307,7 +419,7 @@ class VoxenApp:
             self.detail_var.set(f"Hold {self.config.hotkey} to dictate.")
         elif self.state is AppState.PAUSED:
             self.status_var.set("Paused")
-            self.detail_var.set("Resume from the Voxen tray icon.")
+            self.detail_var.set("Resume from the … menu." if sys.platform == "linux" else "Resume from the Voxen tray icon.")
 
     def _request_recording_start(self) -> None:
         if self.dictation.begin_recording():
@@ -473,6 +585,9 @@ class VoxenApp:
     def close(self) -> None:
         if self.state is AppState.CLOSING:
             return
+        if getattr(self, "_theme_poll_id", None) is not None:
+            self.root.after_cancel(self._theme_poll_id)
+            self._theme_poll_id = None
         try:
             if self.hotkey is not None:
                 self.hotkey.stop()
@@ -528,6 +643,27 @@ def main() -> None:
     except Exception:
         logger.warning("Failed to set DPI awareness", exc_info=True)
 
+    if sys.platform == "linux":
+        from .infrastructure.linux import require_x11
+
+        try:
+            require_x11()
+        except SystemExit as exc:
+            try:
+                from tkinter import messagebox
+
+                root = tk.Tk()
+                root.withdraw()
+                messagebox.showerror("Voxen — X11 required", str(exc), parent=root)
+                root.destroy()
+            except tk.TclError:
+                pass
+            raise
+    if sys.argv[1:] == ["--check-runtime"]:
+        from .infrastructure.runtime_check import check_runtime
+
+        check_runtime()
+        return
     root = tk.Tk()
     VoxenApp(root)
     root.mainloop()

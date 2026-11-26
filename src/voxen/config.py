@@ -34,6 +34,7 @@ _ALLOWED_COMPUTE_TYPES = frozenset({"int8", "int8_float16", "int8_float32", "flo
 
 _FIELD_VALIDATORS: dict[str, Callable[[object], bool]] = {
     "hotkey": _is_valid_hotkey,
+    "appearance": lambda value: value in ("system", "light", "dark"),
     "model": lambda value: value in SUPPORTED_MODELS,
     "language": lambda value: value in SUPPORTED_LANGUAGES,
     "device": lambda value: value in _ALLOWED_DEVICES,
@@ -52,6 +53,7 @@ class AppConfig:
     sample_rate: int = 16_000
     auto_paste: bool = True
     punctuation: bool = True
+    appearance: str = "system"
 
 
 class ConfigStore:
@@ -62,6 +64,10 @@ class ConfigStore:
     def _default_path() -> Path:
         if sys.platform == "darwin":
             base = Path.home() / "Library" / "Application Support" / "Voxen"
+        elif sys.platform == "linux":
+            from .infrastructure.linux import xdg_directory
+
+            base = xdg_directory("XDG_CONFIG_HOME", ".config") / "voxen"
         else:
             base = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Voxen"
         return base / "config.json"

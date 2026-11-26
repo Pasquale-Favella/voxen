@@ -29,8 +29,10 @@ class HotkeyCapture:
         button_var: tk.StringVar,
         hint_var: tk.StringVar,
         on_change: Callable[[str], None],
+        palette: theme.Palette = theme.LIGHT,
     ) -> None:
         self._button = button
+        self._palette = palette
         self._hotkey_var = hotkey_var
         self._button_var = button_var
         self._hint_var = hint_var
@@ -46,9 +48,9 @@ class HotkeyCapture:
     def begin(self) -> None:
         self._keys_down = set()
         self.capturing = True
-        self._button_var.set("PRESS YOUR COMBINATION")
-        self._hint_var.set("For example: hold Ctrl and press Space")
-        self._button.set_colors(bg=theme.CAPTURE_BG, fg=theme.CAPTURE_FG, active_bg=theme.CAPTURE_ACTIVE_BG)
+        self._button_var.set("Press shortcut")
+        self._hint_var.set("Hold a modifier, then press a key")
+        self.set_palette(self._palette)
         self._button.focus_set()
         self._binding = self._button.bind("<KeyPress>", self._on_key_press, add="+")
 
@@ -57,7 +59,7 @@ class HotkeyCapture:
         self._keys_down = set()
         self._hotkey_var.set(revert_to)
         self._button_var.set(self.display_text(revert_to))
-        self._hint_var.set("Click the button, then press your key combination")
+        self._hint_var.set("Click shortcut to change it")
         self._on_change(revert_to)
 
     def _on_key_press(self, event: tk.Event) -> str:
@@ -86,4 +88,11 @@ class HotkeyCapture:
         if self._binding is not None:
             self._button.unbind("<KeyPress>", self._binding)
             self._binding = None
-        self._button.set_colors(bg=theme.BUTTON_BG, fg=theme.BUTTON_FG, active_bg=theme.BUTTON_ACTIVE_BG)
+        self.set_palette(self._palette)
+
+    def set_palette(self, palette: theme.Palette) -> None:
+        self._palette = palette
+        if self.capturing:
+            self._button.set_colors(bg=palette.ACCENT, fg=palette.ACCENT_DARK, active_bg=palette.ACCENT_SOFT)
+        else:
+            self._button.set_colors(bg=palette.BUTTON_BG, fg=palette.TEXT_PRIMARY, active_bg=palette.BUTTON_ACTIVE_BG)

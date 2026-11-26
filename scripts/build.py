@@ -15,8 +15,8 @@ def run(command: list[str]) -> None:
 
 
 def main() -> None:
-    if sys.platform not in {"win32", "darwin"}:
-        raise SystemExit("Voxen packaging supports Windows and macOS only.")
+    if sys.platform not in {"win32", "darwin", "linux"}:
+        raise SystemExit("Voxen packaging supports Windows, macOS and Linux only.")
 
     pyinstaller = [sys.executable, "-m", "PyInstaller"]
     run([sys.executable, str(ROOT / "scripts" / "create_assets.py")])
@@ -42,10 +42,9 @@ def main() -> None:
     run([sys.executable, "-c", "from onnx_asr.loader import Manager; import onnxruntime"])
     for package in ("onnx_asr", "onnxruntime"):
         command += ["--collect-all", package]
-    command += [
-        "--add-data",
-        f"{ROOT / 'assets' / 'voxen-mark.png'}{data_separator}assets",
-    ]
+    command += ["--add-data", f"{ROOT / 'LICENSE'}{data_separator}."]
+    for asset in ("voxen-mark.png", "voxen-mark-dark.png", "voxen-system.png"):
+        command += ["--add-data", f"{ROOT / 'assets' / asset}{data_separator}assets"]
     if sys.platform == "win32":
         command += [
             "--icon",
@@ -55,13 +54,18 @@ def main() -> None:
             "--hidden-import",
             "pynput.keyboard._win32",
         ]
-    else:
+    elif sys.platform == "darwin":
         command += [
+            "--icon",
+            str(ROOT / "assets" / "voxen.icns"),
             "--hidden-import",
             "pystray._darwin",
             "--hidden-import",
             "pynput.keyboard._darwin",
         ]
+    else:
+        command += ["--hidden-import", "pynput.keyboard._xorg", "--hidden-import", "pynput.mouse._xorg",
+                    "--hidden-import", "pyautogui._pyautogui_x11"]
     command.append(str(ROOT / "src" / "voxen" / "__main__.py"))
     run(command)
 
@@ -72,7 +76,7 @@ def main() -> None:
         else:
             archive = shutil.make_archive(str(DIST / "Voxen-windows"), "zip", DIST / "Voxen")
             print(f"Inno Setup not found; created archive: {archive}")
-    else:
+    elif sys.platform == "darwin":
         # PyInstaller --windowed on macOS emits dist/Voxen.app; fail fast
         # with a clear message instead of a cryptic hdiutil error.
         app_bundle = DIST / "Voxen.app"
@@ -81,6 +85,8 @@ def main() -> None:
         dmg = DIST / "Voxen-macos.dmg"
         run(["hdiutil", "create", "-volname", "Voxen", "-srcfolder", str(app_bundle), "-ov", str(dmg)])
         print(f"Created disk image: {dmg}")
+    else:
+        run([sys.executable, str(ROOT / "scripts" / "package_linux.py")])
 
 
 if __name__ == "__main__":
