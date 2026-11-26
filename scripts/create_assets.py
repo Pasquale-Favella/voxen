@@ -13,7 +13,7 @@ ASSETS = ROOT / "assets"
 
 def render_mark(size: int = 256) -> Image.Image:
     png = svg_to_bytes(
-        svg_path=str(ASSETS / "voxen-mark.svg"),
+        svg_path=str(ASSETS / "voxen-waveform.svg"),
         width=size,
         height=size,
         shape_rendering="geometric_precision",
@@ -39,8 +39,8 @@ def system_mark(mark: Image.Image) -> Image.Image:
 
 def main() -> None:
     ASSETS.mkdir(exist_ok=True)
-    svg = (ASSETS / "voxen-mark.svg").read_text(encoding="utf-8")
-    (ASSETS / "voxen-mark-dark.svg").write_text(svg.replace('fill="#18181b"', 'fill="#f1f1f3"'), encoding="utf-8")
+    svg = (ASSETS / "voxen-waveform.svg").read_text(encoding="utf-8")
+    (ASSETS / "voxen-waveform-dark.svg").write_text(svg.replace('fill="#18181b"', 'fill="#f1f1f3"'), encoding="utf-8")
     mark = render_mark()
     mark.save(ASSETS / "voxen-mark.png", optimize=True)
     recolor(mark, (241, 241, 243)).save(ASSETS / "voxen-mark-dark.png", optimize=True)

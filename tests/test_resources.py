@@ -54,8 +54,8 @@ def test_readme_vector_marks_share_the_same_continuous_silhouette() -> None:
     from xml.etree import ElementTree as ET
 
     namespace = {"svg": "http://www.w3.org/2000/svg"}
-    light = ET.parse(resources.asset_path("voxen-mark.svg")).getroot()
-    dark = ET.parse(resources.asset_path("voxen-mark-dark.svg")).getroot()
+    light = ET.parse(resources.asset_path("voxen-waveform.svg")).getroot()
+    dark = ET.parse(resources.asset_path("voxen-waveform-dark.svg")).getroot()
     light_paths = light.findall(".//svg:path", namespace)
     dark_paths = dark.findall(".//svg:path", namespace)
     assert len(light_paths) == len(dark_paths) == 1
