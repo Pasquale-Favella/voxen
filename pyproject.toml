@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "voxen"
-version = "0.2.1"
+version = "0.2.2"
 description = "Local-first AI voice dictation for Windows, macOS and Linux (X11)"
 readme = "README.md"
 license = "MIT"
@@ -23,6 +23,7 @@ dependencies = [
     "pystray>=0.19.5,<1",
     "Pillow>=10.0.0,<13",
     "pyobjc-framework-Cocoa>=10.0,<13; sys_platform == 'darwin'",
+    "pyobjc-framework-Quartz>=10.0,<13; sys_platform == 'darwin'",
 ]
 
 [project.optional-dependencies]

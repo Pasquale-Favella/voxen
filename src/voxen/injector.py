@@ -293,6 +293,10 @@ class ClipboardInjector:
     def inject(self, text: str) -> None:
         backend = self._get_backend()
         automation = self._automation
+        if automation is None and sys.platform == "darwin":
+            from .infrastructure.macos_input import MacPasteAutomation
+
+            automation = MacPasteAutomation()
         if automation is None:
             try:
                 import pyautogui

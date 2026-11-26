@@ -170,6 +170,39 @@ jobs:
           path: dist/Voxen-macos-${{ matrix.arch }}.dmg
           if-no-files-found: error
 
+  macos-startup:
+    name: macOS 26 startup (${{ matrix.arch }})
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    needs: package-macos
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            arch: arm64
+          - os: macos-26-intel
+            arch: x86_64
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: Voxen-macos-${{ matrix.arch }}
+          path: packages
+      - name: Launch release DMG with native services on Tahoe
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+          PYTHONFAULTHANDLER: "1"
+        shell: bash
+        run: |
+          set -euo pipefail
+          sw_vers
+          test "$(uname -m)" = "$EXPECTED_ARCH"
+          mount_dir=$(mktemp -d)
+          trap 'hdiutil detach "$mount_dir" -quiet || true; rmdir "$mount_dir" || true' EXIT
+          hdiutil attach "packages/Voxen-macos-$EXPECTED_ARCH.dmg" -readonly -nobrowse -mountpoint "$mount_dir" -quiet
+          "$mount_dir/Voxen.app/Contents/MacOS/Voxen" --check-runtime
+
   package-linux:
     name: Package Linux x86-64 (X11)
     if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
@@ -217,7 +250,7 @@ jobs:
   release:
     name: Attest and publish installers
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [package, package-macos, package-linux]
+    needs: [package, package-macos, macos-startup, package-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write

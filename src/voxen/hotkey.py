@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 
 from .domain.hotkey_combo import KeyCombination, normalize_key_name
@@ -29,6 +30,16 @@ class GlobalHotkey:
         return normalize_key_name(str(key).strip("'").lower())
 
     def start(self) -> None:
+        if sys.platform == "darwin":
+            from .infrastructure.macos_input import MacHotkey
+
+            self._listener = MacHotkey(KeyCombination.parse(self.hotkey), self.on_press, self.on_release)
+            try:
+                self._listener.start()
+            except Exception:
+                self._listener = None
+                raise
+            return
         try:
             from pynput import keyboard
         except ImportError as exc:
