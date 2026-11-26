@@ -1,6 +1,7 @@
 """Non-recording runtime smoke check for the installed desktop package."""
 from __future__ import annotations
 
+import os
 import tempfile
 import tkinter as tk
 from pathlib import Path
@@ -42,3 +43,42 @@ def check_runtime() -> None:
         finally:
             app.close()
     print("Voxen runtime check passed (UI, native libraries and input backends).")
+    wav = os.environ.get("VOXEN_PARAKEET_TEST_WAV")
+    expected = os.environ.get("VOXEN_PARAKEET_TEST_EXPECTED")
+    if wav or expected:
+        if not wav or not expected:
+            raise RuntimeError("Both speech fixture and expected transcript are required.")
+        check_inference(Path(wav), expected)
+
+
+def check_inference(wav: Path, expected: str) -> None:
+    """Test the actual bundled runtime and pinned model, including offline reload."""
+    import wave
+
+    import numpy as np
+
+    from voxen.stt import ParakeetEngine
+
+    with wave.open(str(wav), "rb") as handle:
+        assert (handle.getnchannels(), handle.getsampwidth(), handle.getframerate()) == (1, 2, 16_000)
+        audio = np.frombuffer(handle.readframes(handle.getnframes()), dtype="<i2").astype(np.float32) / 32768.0
+
+    with tempfile.TemporaryDirectory(prefix="voxen-smoke-models-") as directory:
+        cache = Path(directory)
+        engine = ParakeetEngine(cache_root=cache)
+        try:
+            engine.load()
+            assert engine._vad_enabled, "Silero VAD failed to load"
+            first = engine.transcribe(audio)
+            assert expected.casefold() in first.casefold(), "Expected phrase missing from real inference"
+        finally:
+            engine.unload()
+        offline = ParakeetEngine(cache_root=cache, offline=True)
+        with patch("voxen.stt.urlopen", side_effect=AssertionError("Unexpected offline download")):
+            try:
+                offline.load()
+                assert offline._vad_enabled
+                assert offline.transcribe(audio) == first
+            finally:
+                offline.unload()
+    print("Voxen real Parakeet inference and offline reload passed.")

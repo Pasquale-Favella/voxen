@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import platform
 import shutil
 import subprocess
 import sys
@@ -55,7 +56,12 @@ def main() -> None:
             "pynput.keyboard._win32",
         ]
     elif sys.platform == "darwin":
+        arch = platform.machine()
+        if arch not in {"arm64", "x86_64"}:
+            raise SystemExit(f"Unsupported macOS architecture: {arch}")
         command += [
+            "--target-architecture",
+            arch,
             "--icon",
             str(ROOT / "assets" / "voxen.icns"),
             "--hidden-import",
@@ -82,7 +88,7 @@ def main() -> None:
         app_bundle = DIST / "Voxen.app"
         if not app_bundle.exists():
             raise SystemExit(f"Expected macOS bundle not found: {app_bundle}")
-        dmg = DIST / "Voxen-macos.dmg"
+        dmg = DIST / f"Voxen-macos-{platform.machine()}.dmg"
         run(["hdiutil", "create", "-volname", "Voxen", "-srcfolder", str(app_bundle), "-ov", str(dmg)])
         print(f"Created disk image: {dmg}")
     else:

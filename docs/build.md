@@ -18,7 +18,7 @@ The script creates `dist\Voxen\`. With Inno Setup installed, it builds `dist\ins
 ./scripts/build-macos.sh
 ```
 
-Outputs `dist/Voxen.app` and `dist/Voxen-macos.dmg`.
+Outputs `dist/Voxen.app` and `dist/Voxen-macos-arm64.dmg` or `dist/Voxen-macos-x86_64.dmg`, depending on the native Python architecture. Use a native Python interpreter, not Rosetta, for the target architecture. CI builds and verifies both on macOS 15 with actual Parakeet inference from the mounted DMG. Intel uses ONNX Runtime 1.23.2 because newer releases no longer provide Intel wheels. Other platforms keep their existing runtime resolution. macOS versions older than 15 are not yet validated. Ad-hoc signatures are verified; this is not Apple notarization.
 
 ## Linux x86-64 (X11)
 
@@ -72,7 +72,7 @@ The standard GitHub Actions workflow packages builds on version tags or manual d
 
 ## Release integrity and signing
 
-The tag-triggered release job stages the Windows EXE, macOS DMG, Linux DEB and AppImage (and optional Windows ZIP), generates `SHA256SUMS`, creates GitHub Artifact Attestations for the final bytes via Sigstore, verifies them, then publishes the release. The attestation associates the artifacts with the repository and tag-triggered workflow; it does not imply a platform-native code signature. Older releases may not include attestations.
+The tag-triggered release job stages the Windows EXE, both macOS DMGs, Linux DEB and AppImage (and optional Windows ZIP), generates `SHA256SUMS`, creates GitHub Artifact Attestations for the final bytes via Sigstore, verifies them, then publishes the release. The attestation associates the artifacts with the repository and tag-triggered workflow; it does not imply a platform-native code signature. Older releases may not include attestations.
 
 Download the desired asset and `SHA256SUMS` from the same release. On Linux, check the downloaded files:
 
@@ -85,11 +85,11 @@ On macOS, use `shasum -a 256 <installer>`; on Windows PowerShell, use `Get-FileH
 For cryptographic provenance, install a recent [GitHub CLI](https://cli.github.com/) and verify each downloaded file against this repository and its release tag:
 
 ```bash
-gh attestation verify ./Voxen-macos.dmg --repo Pasquale-Favella/voxen --source-ref refs/tags/vVERSION
+gh attestation verify ./Voxen-macos-arm64.dmg --repo Pasquale-Favella/voxen --source-ref refs/tags/vVERSION
 gh attestation verify ./SHA256SUMS --repo Pasquale-Favella/voxen --source-ref refs/tags/vVERSION
 ```
 
-Replace `vVERSION` with the actual tag (e.g. `v0.2.0` if such a release is published with this workflow). The same verification applies to EXE, DEB, AppImage and ZIP files.
+Replace `vVERSION` with the actual tag (e.g. `v0.2.1` once published). The same verification applies to EXE, DEB, AppImage and ZIP files.
 
 ### Native platform signing — not yet configured
 
